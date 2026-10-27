@@ -24,6 +24,23 @@ Interview booking, video interviews and translated transcripts for ConnectOS rec
    segments by time labelled recruiter / candidate, writes a summary, and stores everything
    in Supabase.
 
+## Candidate portal
+
+| Route | What it does |
+|---|---|
+| `/c/<recruiter-slug>/<token>` | Welcome (recruiter photo, bio, welcome message), time picker in the candidate's time zone, recording consent, booking. After booking: confirmation. |
+| `/c/<recruiter-slug>/<token>/room` | Interview room. The candidate joins the Daily room **without a meeting token**, so Daily holds them in the lobby; the page shows the ConnectOS waiting screen until the recruiter admits them, then shows the video. |
+| `/c/<recruiter-slug>/<token>/invite.ics` | "Add to calendar" download. |
+
+- Waiting-screen marketing content lives in `content/waiting-room.ts` (placeholder copy marked).
+- Booking rules (working hours, notice, days ahead) are in `lib/availability.ts`.
+- Recruiter photos come from the public Supabase Storage bucket `recruitment-public`.
+- **Local demo:** with `npm run dev`, open `/c/demo/demo` to click through without any
+  credentials (`?reset=1` starts it again). The demo is disabled in production.
+
+Daily setup: raw-tracks recording needs an S3 bucket configured on the Daily domain
+(`recordings_bucket`) before recordings will work.
+
 ## Stack
 
 Next.js, Tailwind and Supabase, matching `connectos-bi-chat`. The brand theme

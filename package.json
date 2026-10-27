@@ -9,13 +9,17 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@daily-co/daily-js": "^0.94.0",
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.45.4",
+    "luxon": "^3.7.2",
     "next": "^16.3.5",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@types/luxon": "^3.7.6",
     "@types/node": "^20.14.9",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
