@@ -32,8 +32,9 @@ Next.js, Tailwind and Supabase, matching `connectos-bi-chat`. The brand theme
 ## Database
 
 Tables are prefixed `cos_recruitment_` in the ConnectOS Supabase project. Migrations live in
-`db/migrations/`; `001_cos_recruitment_tables.sql` creates the full schema. It has not been
-applied yet.
+`db/migrations/`, applied in number order: `001_cos_recruitment_tables.sql` creates the full
+schema and `002_cos_recruitment_fk_indexes.sql` adds foreign-key indexes. Both are applied to
+the ConnectOS Database project.
 
 ## Local setup
 
