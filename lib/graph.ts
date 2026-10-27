@@ -3,8 +3,8 @@ import { DateTime } from "luxon";
 import type { TimeRange } from "./types";
 
 // Microsoft Graph with app-only (client credentials) auth. Needs the
-// Calendars.ReadWrite application permission, ideally limited to recruiter
-// mailboxes with an application access policy.
+// Calendars.ReadWrite and Mail.Send application permissions, limited to
+// recruiter mailboxes with an application access policy.
 
 export function graphConfigured(): boolean {
   return Boolean(process.env.MS_TENANT_ID && process.env.MS_CLIENT_ID && process.env.MS_CLIENT_SECRET);
@@ -31,19 +31,20 @@ async function accessToken(): Promise<string> {
   return cachedToken.value;
 }
 
-async function graph<T>(path: string, body: unknown): Promise<T> {
+async function graph<T>(path: string, body: unknown, method = "POST"): Promise<T> {
   const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
-    method: "POST",
+    method,
     headers: {
       Authorization: `Bearer ${await accessToken()}`,
       "Content-Type": "application/json",
       Prefer: 'outlook.timezone="UTC"',
     },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Graph ${path} failed: ${res.status} ${await res.text()}`);
-  return (await res.json()) as T;
+  // sendMail, cancel and delete answer 202/204 with no body.
+  return (res.status === 202 || res.status === 204 ? undefined : await res.json()) as T;
 }
 
 type ScheduleResponse = {
@@ -91,4 +92,27 @@ export async function createInterviewEvent(
     allowNewTimeProposals: false,
   });
   return json.id;
+}
+
+// Cancels the Outlook entry; Outlook sends the candidate a cancellation.
+export async function cancelInterviewEvent(calendarEmail: string, eventId: string, comment: string): Promise<void> {
+  await graph<void>(
+    `/users/${encodeURIComponent(calendarEmail)}/events/${encodeURIComponent(eventId)}/cancel`,
+    { comment },
+  );
+}
+
+// Sends an email from the recruiter's own mailbox (it appears in their Sent Items).
+export async function sendMailAs(
+  fromEmail: string,
+  mail: { to: { name: string; email: string }; subject: string; bodyHtml: string },
+): Promise<void> {
+  await graph<void>(`/users/${encodeURIComponent(fromEmail)}/sendMail`, {
+    message: {
+      subject: mail.subject,
+      body: { contentType: "HTML", content: mail.bodyHtml },
+      toRecipients: [{ emailAddress: { address: mail.to.email, name: mail.to.name } }],
+    },
+    saveToSentItems: true,
+  });
 }

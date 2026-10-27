@@ -47,8 +47,10 @@ Embedded in COSHub's content pane at `https://interviews.connectos.co/r`, styled
 
 | Route | What it does |
 |---|---|
-| `/r` | The signed-in recruiter's interviews: upcoming, awaiting booking, past 30 days. |
-| `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) beside the video. End interview / Mark as no-show. |
+| `/r` | The signed-in recruiter's interviews: upcoming, awaiting booking, past 30 days. Row actions: **New link** (lost or expired invite), **Reschedule** (frees the time, cancels the Outlook entry, new link), **Cancel**. |
+| `/r/interviews/new` | Pick a JobAdder job (from the synced `ja_jobs`, open and on hold), tick candidates with active applications (`ja_applications`), choose the length. Creates the interview and one invite per candidate, emails each from the recruiter's Outlook (Graph `Mail.Send`) and shows the links to copy. Links are only shown once - only their hash is stored. |
+| `/r/profile` | What candidates see: name, title, photo (Supabase Storage `recruitment-public`, 2 MB), welcome message, bio, time zone. |
+| `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) beside the video. End interview / Mark as no-show. Once completed: summary, scores, notes and the English transcript, and **Add summary to JobAdder**. |
 | `/r/login` | Microsoft sign-in (Supabase Auth, Azure provider - same as COSHub). Inside COSHub's frame it opens in a pop-up, because Microsoft's sign-in can't be framed. |
 
 - Access follows COSHub's rule: the person must be an active SCIM-provisioned COSHub user.
@@ -59,7 +61,76 @@ Embedded in COSHub's content pane at `https://interviews.connectos.co/r`, styled
   can't use the recruiter's camera.
 - **Supabase change needed:** add `https://interviews.connectos.co/r/auth/callback` to the
   Auth redirect allow list.
-- Local demo: without Supabase settings, `npm run dev` signs you in as the demo recruiter at `/r`.
+- Local demo: without `NEXT_PUBLIC_SUPABASE_URL`, `npm run dev` signs you in as the demo recruiter
+  at `/r`, with sample JobAdder jobs and an in-memory store - invites you create open at the links
+  shown. Photo upload needs Supabase.
+
+## Transcription worker
+
+Runs inside the same Next.js server (no separate service):
+
+1. Daily calls `POST /api/daily/webhook` with `recording.ready-to-download` (signature checked).
+   The recording is saved against the booking whose room it was, then processed after the response.
+2. Each participant's raw audio track is downloaded from S3 and compressed with ffmpeg (mono,
+   16 kHz Opus, ~11 MB/hour).
+3. Groq `whisper-large-v3` **translations** turns Tagalog/English/Taglish audio into English text.
+   Segments Whisper marks as non-speech, loops and the usual phantom lines ("Thank you for
+   watching") are dropped, since each track is mostly silence while the other person talks.
+4. Segments are placed on one timeline using each track's start offset, labelled recruiter
+   (the participant whose Daily `user_id` is `recruiter:<id>`) or candidate.
+5. Claude writes the summary and 1-5 scores from the transcript plus the recruiter's notes.
+6. `POST /api/worker/run` (Bearer `WORKER_SECRET`) retries failed or stuck recordings, up to 3
+   attempts; schedule it every 15 minutes.
+
+Approximate running cost per 30-minute interview: Groq about $0.11 (two 30-minute tracks at its
+per-hour rate), Claude summary a few cents, Daily within its free participant minutes at low volume.
+
+## Data rules
+
+- All `cos_recruitment_` tables: RLS on, no policies, and no grants for `anon` / `authenticated` -
+  only this server (service role) can read or write them.
+- Booking goes through `cos_recruitment_claim_slot`, which locks the recruiter and refuses a time
+  that overlaps another of their bookings, so two candidates can't take the same slot.
+- Retention (`cos_recruitment_apply_retention`, pg_cron daily at 02:15 Manila): transcripts,
+  summaries, recordings metadata and notes are deleted **12 months** after the interview; invites
+  never used are closed 90 days after expiry. Raw audio stays in S3 - set a lifecycle rule there.
+
+## Go-live checklist
+
+Accounts and access (IT / admin):
+
+- [ ] **Hosting + DNS**: deploy this app on the COSHub server, `interviews.connectos.co` pointing at it
+  over HTTPS. Install **ffmpeg** on the server.
+- [ ] **Environment**: fill every value in `.env.local.example` on the server.
+- [ ] **Supabase Auth**: add `https://interviews.connectos.co/r/auth/callback` to the redirect allow list.
+- [ ] **Daily**: paid account (raw-tracks recording), API key, and the domain's recordings bucket set to
+  our S3 bucket (`recordings_bucket` with an IAM role Daily can assume). Then create the webhook with
+  `DAILY_WEBHOOK_SECRET` as `hmac` (command in `app/api/daily/webhook/route.ts`).
+- [ ] **S3**: private bucket, lifecycle rule deleting raw tracks after 30-90 days,
+  read-only key for the worker.
+- [ ] **Microsoft Graph**: app registration with application permissions `Calendars.ReadWrite` and
+  `Mail.Send`, admin consent, and an **application access policy** limiting it to recruiter mailboxes.
+- [ ] **Groq** and **Anthropic** API keys.
+- [ ] **Worker schedule**: `POST /api/worker/run` every 15 minutes with `WORKER_SECRET`.
+- [ ] **COSHub**: merge the cosops iframe change, then add a menu item embedding
+  `https://interviews.connectos.co/r` (Admin: menu access).
+- [ ] **Recruiter profiles**: one `cos_recruitment_recruiters` row per recruiter (slug, display name,
+  `calendar_email` = their Microsoft sign-in email). Each recruiter then completes /r/profile.
+
+Decisions and content (business):
+
+- [ ] Confirm retention periods (12 months / 90 days) with whoever owns privacy, and the privacy
+  policy URL in `lib/site.ts`.
+- [ ] Final marketing copy and video for the waiting room (`content/waiting-room.ts`).
+- [ ] Booking rules: working hours, notice, days ahead (`lib/availability.ts`).
+
+Test before relying on it:
+
+- [ ] **JobAdder write-back** - the note endpoint in `lib/staff/jobadder-api.ts` couldn't be checked
+  against JobAdder's docs; add a summary for one test candidate and confirm it appears. Also confirm
+  refreshing the shared `ja_token` doesn't upset the existing sync.
+- [ ] One end-to-end interview: invite email, booking, Outlook entry, lobby, recording, transcript,
+  summary.
 
 ## Stack
 
@@ -69,9 +140,9 @@ Next.js, Tailwind and Supabase, matching `connectos-bi-chat`. The brand theme
 ## Database
 
 Tables are prefixed `cos_recruitment_` in the ConnectOS Supabase project. Migrations live in
-`db/migrations/`, applied in number order: `001_cos_recruitment_tables.sql` creates the full
-schema and `002_cos_recruitment_fk_indexes.sql` adds foreign-key indexes. Both are applied to
-the ConnectOS Database project.
+`db/migrations/`, applied in number order: `001` creates the schema, `002` adds foreign-key
+indexes, `003` hardening (grants, booking function, photo bucket, retention job) and `004` the
+worker queue functions. All four are applied to the ConnectOS Database project.
 
 ## Local setup
 

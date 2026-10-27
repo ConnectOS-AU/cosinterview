@@ -18,6 +18,12 @@ export default async function SignedInLayout({ children }: { children: React.Rea
             <Link href="/r" className={NAV_LINK}>
               Interviews
             </Link>
+            <Link href="/r/interviews/new" className={NAV_LINK}>
+              New interview
+            </Link>
+            <Link href="/r/profile" className={NAV_LINK}>
+              My profile
+            </Link>
           </nav>
           <div className="flex items-center gap-4">
             <span className="text-sm text-neutral-500">{staff.email}</span>

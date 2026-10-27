@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
+import { graphConfigured } from "@/lib/graph";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { listNotes } from "@/lib/staff/repo";
 import { STATUS_BADGE } from "@/lib/staff/status";
+import { getInterviewRecord } from "@/lib/staff/transcripts";
+import { BookingActions } from "../../interviews/booking-actions";
+import { InterviewRecordView } from "./interview-record";
 import { InterviewScreen } from "./interview-screen";
 
 export const dynamic = "force-dynamic";
@@ -38,15 +42,22 @@ export default async function BookingPage({ params }: Props) {
             {invite.interview.clientName && ` · ${invite.interview.clientName}`} · {when}
           </p>
         </div>
-        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badge.className}`}>{badge.label}</span>
+        <div className="flex items-start gap-4">
+          <BookingActions bookingId={invite.bookingId} status={invite.status} canEmail={graphConfigured()} />
+          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badge.className}`}>{badge.label}</span>
+        </div>
       </div>
 
-      <InterviewScreen
-        bookingId={invite.bookingId}
-        candidateName={invite.candidateName}
-        canJoin={invite.status === "booked" || invite.status === "in_progress"}
-        initialNotes={notes}
-      />
+      {invite.status === "completed" ? (
+        <InterviewRecordView bookingId={invite.bookingId} record={await getInterviewRecord(invite.bookingId)} notes={notes} />
+      ) : (
+        <InterviewScreen
+          bookingId={invite.bookingId}
+          candidateName={invite.candidateName}
+          canJoin={invite.status === "booked" || invite.status === "in_progress"}
+          initialNotes={notes}
+        />
+      )}
     </main>
   );
 }

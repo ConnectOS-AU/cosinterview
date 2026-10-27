@@ -1,6 +1,10 @@
 "use server";
 
 import { createOwnerToken } from "@/lib/daily";
+import { demoMode } from "@/lib/demo";
+import { siteUrl } from "@/lib/invite";
+import { addCandidateNote, jobAdderWriteConfigured } from "@/lib/staff/jobadder-api";
+import { getInterviewRecord, markSummaryWritten } from "@/lib/staff/transcripts";
 import { findInviteById } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
 import { requireRecruiter } from "@/lib/staff/auth";
@@ -62,4 +66,37 @@ export async function recordingStarted(bookingId: string, dailyRecordingId: stri
 export async function finishInterview(bookingId: string, outcome: "completed" | "no_show"): Promise<void> {
   await ownBooking(bookingId);
   await setBookingStatus(bookingId, outcome);
+}
+
+// The recruiter reviews the summary, then sends it to the candidate's JobAdder
+// record as an interview note. Never automatic.
+export async function sendSummaryToJobAdder(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { invite } = await ownBooking(bookingId);
+  const record = await getInterviewRecord(bookingId);
+  if (!record.recordingId || !record.summary) return { ok: false, error: "There's no summary to send yet." };
+  if (record.summary.writtenToJobAdderAt) return { ok: false, error: "Already added to JobAdder." };
+  if (!demoMode() && !jobAdderWriteConfigured()) return { ok: false, error: "JobAdder write-back isn't set up yet." };
+
+  const s = record.summary;
+  const text = [
+    `Video interview${invite.interview.jobTitle ? ` - ${invite.interview.jobTitle}` : ""} (ConnectOS Interviews)`,
+    "",
+    s.summary,
+    "",
+    s.strengths.length ? `Strengths:\n${s.strengths.map((x) => `- ${x}`).join("\n")}` : "",
+    s.concerns.length ? `Concerns:\n${s.concerns.map((x) => `- ${x}`).join("\n")}` : "",
+    `Scores (1-5): communication ${s.scores.communication}, English ${s.scores.englishFluency}, experience ${s.scores.relevantExperience}, motivation ${s.scores.motivation}`,
+    `Full transcript: ${siteUrl()}/r/bookings/${bookingId}`,
+  ]
+    .filter((line, i, all) => line !== "" || all[i - 1] !== "")
+    .join("\n");
+
+  try {
+    if (!demoMode()) await addCandidateNote(invite.jobadderCandidateId, text);
+    await markSummaryWritten(record.recordingId);
+    return { ok: true };
+  } catch (err) {
+    console.error("[jobadder note]", bookingId, err);
+    return { ok: false, error: "JobAdder didn't accept the note. Please try again or paste it in manually." };
+  }
 }

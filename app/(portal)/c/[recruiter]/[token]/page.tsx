@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { isDemoInvite, resetDemoInvite } from "@/lib/demo";
+import { isDemoInvite, resetDemo } from "@/lib/demo";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
 import { availableSlots, inviteExpired, invitePath, loadInvite, publicRecruiter } from "@/lib/invite";
 import type { InviteRecord, PublicRecruiter } from "@/lib/types";
@@ -17,7 +17,7 @@ type Props = {
 export default async function InvitePage({ params, searchParams }: Props) {
   const { recruiter: slug, token } = await params;
   if ((await searchParams).reset && isDemoInvite(slug, token)) {
-    resetDemoInvite();
+    resetDemo();
     redirect(`/c/${slug}/${token}`);
   }
 

@@ -3,7 +3,7 @@
 import { DateTime } from "luxon";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { DEMO_BOOKING_ID } from "@/lib/demo";
+import { demoMode } from "@/lib/demo";
 import { createInterviewEvent, graphConfigured } from "@/lib/graph";
 import {
   availableSlots,
@@ -62,7 +62,10 @@ export async function bookInterview(input: {
     candidateTimezone: validTimezone(input.timezone) ? input.timezone : invite.recruiter.timezone,
     consentAt: new Date().toISOString(),
   });
-  if (!claimed) return { ok: false, error: "This interview is already booked.", refresh: true };
+  if (claimed === "taken") {
+    return { ok: false, error: "Sorry, that time has just been taken. Please pick another.", refresh: true };
+  }
+  if (claimed !== "ok") return { ok: false, error: "This interview is already booked.", refresh: true };
 
   // The booking is saved. Room and calendar entry are best-effort here: the room
   // is created again on join if this fails, and a missing calendar entry is
@@ -112,7 +115,7 @@ export async function getRoomAccess(recruiter: string, token: string): Promise<R
   if (!window) return { ok: false, reason: "not_booked" };
   const now = DateTime.utc();
   // The local demo skips the time check so the lobby can be tried straight away.
-  if (invite.bookingId !== DEMO_BOOKING_ID) {
+  if (!demoMode()) {
     if (now < window.opens) return { ok: false, reason: "too_early" };
     if (now > window.closes) return { ok: false, reason: "closed" };
   }

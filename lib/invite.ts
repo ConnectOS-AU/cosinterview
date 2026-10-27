@@ -1,7 +1,7 @@
 import "server-only";
 import { DateTime } from "luxon";
 import { bookingWindow, freeSlots } from "./availability";
-import { demoInvite, isDemoInvite } from "./demo";
+import { DEMO_BOOKING_ID, demoInviteById, isDemoInvite } from "./demo";
 import { getBusy, graphConfigured } from "./graph";
 import { findInviteByTokenHash, listRecruiterBookings } from "./repo";
 import { hashToken, looksLikeToken } from "./tokens";
@@ -15,7 +15,7 @@ export const JOIN_OPENS_MINS = 15;
 export const JOIN_CLOSES_MINS = 60;
 
 export async function loadInvite(slug: string, token: string): Promise<InviteRecord | null> {
-  if (isDemoInvite(slug, token)) return demoInvite();
+  if (isDemoInvite(slug, token)) return demoInviteById(DEMO_BOOKING_ID);
   if (!looksLikeToken(token)) return null;
   const invite = await findInviteByTokenHash(hashToken(token));
   if (!invite || invite.recruiter.slug !== slug || !invite.recruiter.active) return null;
@@ -34,17 +34,18 @@ export function joinWindow(invite: InviteRecord): { opens: DateTime; closes: Dat
   };
 }
 
+export function recruiterPhotoUrl(photoPath: string | null): string | null {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return photoPath && base ? `${base}/storage/v1/object/public/${RECRUITER_PHOTO_BUCKET}/${photoPath}` : null;
+}
+
 export function publicRecruiter(invite: InviteRecord): PublicRecruiter {
   const { recruiter } = invite;
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
   return {
     displayName: recruiter.displayName,
     firstName: recruiter.displayName.split(" ")[0],
     title: recruiter.title,
-    photoUrl:
-      recruiter.photoPath && base
-        ? `${base}/storage/v1/object/public/${RECRUITER_PHOTO_BUCKET}/${recruiter.photoPath}`
-        : null,
+    photoUrl: recruiterPhotoUrl(recruiter.photoPath),
     bio: recruiter.bio,
     welcomeMessage: recruiter.welcomeMessage,
   };

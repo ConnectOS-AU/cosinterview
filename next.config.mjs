@@ -23,6 +23,10 @@ const staffFrameHeaders = [{ key: "Content-Security-Policy", value: `frame-ances
 const candidateFrameHeaders = [{ key: "Content-Security-Policy", value: "frame-ancestors 'none'" }];
 
 const nextConfig = {
+  experimental: {
+    // Recruiter photo uploads (limited to 2 MB in the action itself).
+    serverActions: { bodySizeLimit: "3mb" },
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

@@ -69,3 +69,58 @@ export async function createOwnerToken(
   if (res.status !== 200 || !res.json.token) throw new Error(`Daily token create failed: ${res.status}`);
   return res.json.token;
 }
+
+// --- Recordings (used by the transcription worker) ---------------------------
+
+export type DailyTrack = { s3Key: string; type: string | null; size: number | null };
+
+export type DailyRecording = {
+  id: string;
+  roomName: string;
+  startTs: number | null;
+  duration: number | null;
+  status: string;
+  mtgSessionId: string | null;
+  tracks: DailyTrack[];
+};
+
+// Daily's track objects have used both camelCase and snake_case keys, so read
+// either.
+export function parseTracks(value: unknown): DailyTrack[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((t) => {
+    const item = (t ?? {}) as Record<string, unknown>;
+    const key = item.s3Key ?? item.s3_key ?? item.key;
+    if (typeof key !== "string" || !key) return [];
+    return [{ s3Key: key, type: typeof item.type === "string" ? item.type : null, size: typeof item.size === "number" ? item.size : null }];
+  });
+}
+
+export async function getRecording(recordingId: string): Promise<DailyRecording | null> {
+  const res = await daily<Record<string, unknown>>("GET", `/recordings/${encodeURIComponent(recordingId)}`);
+  if (res.status === 404) return null;
+  if (res.status !== 200) throw new Error(`Daily recording lookup failed: ${res.status}`);
+  const r = res.json;
+  return {
+    id: String(r.id),
+    roomName: String(r.room_name ?? ""),
+    startTs: typeof r.start_ts === "number" ? r.start_ts : null,
+    duration: typeof r.duration === "number" ? r.duration : null,
+    status: String(r.status ?? ""),
+    mtgSessionId: typeof r.mtgSessionId === "string" ? r.mtgSessionId : null,
+    tracks: parseTracks(r.tracks),
+  };
+}
+
+// Who was in a meeting session. The recruiter is the one whose user_id starts
+// with "recruiter:" (set on their meeting token).
+export async function meetingParticipants(
+  mtgSessionId: string,
+): Promise<{ participantId: string; userId: string | null; userName: string | null }[]> {
+  const res = await daily<{ data?: { participant_id: string; user_id?: string | null; user_name?: string | null }[] }>(
+    "GET",
+    `/meetings/${encodeURIComponent(mtgSessionId)}/participants?limit=100`,
+  );
+  if (res.status !== 200) throw new Error(`Daily participants lookup failed: ${res.status}`);
+  return (res.json.data ?? []).map((p) => ({ participantId: p.participant_id, userId: p.user_id ?? null, userName: p.user_name ?? null }));
+}

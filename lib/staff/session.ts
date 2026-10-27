@@ -1,6 +1,7 @@
 import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { demoMode } from "../demo";
 
 // Supabase Auth (Microsoft sign-in) for the recruiter screens, the same way
 // COSHub does it - same Supabase project, so the same Entra users. Cookies are
@@ -29,7 +30,7 @@ export function authConfigured(): boolean {
 // Local dev without Supabase: sign in as the demo recruiter so the screens can
 // be tried. Never in production.
 export function isDemoStaff(): boolean {
-  return process.env.NODE_ENV !== "production" && !authConfigured();
+  return demoMode();
 }
 
 // Only same-site paths, so a `next` value can't send someone to another origin.
