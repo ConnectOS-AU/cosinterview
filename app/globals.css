@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme colours as RGB channel triplets (used by tailwind.config.ts). Light is
+   the default; the theme script in layout.tsx sets data-theme on <html> before
+   first paint, so there is no flash. Values match connectos-bi-chat. */
+:root,
+html[data-theme="light"] {
+  color-scheme: light;
+  --c-bg: 244 241 234;
+  --c-surface: 255 255 255;
+  --c-sunken: 251 249 244;
+  --c-line: 231 226 214;
+  --c-line-strong: 217 211 196;
+  --c-gold: 189 156 103;
+  --c-gold-dark: 138 109 59;
+  --c-gold-tint: 239 231 214;
+  --c-teal: 18 121 143;
+  --c-teal-dark: 14 96 114;
+  --c-teal-tint: 227 241 244;
+  --c-ink: 43 42 44;
+  --c-text: 66 64 67;
+  --c-muted: 90 87 91;
+  --c-faint: 154 150 140;
+  --c-on-gold: 255 255 255;
+  --c-on-teal: 255 255 255;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: 27 26 28;
+  --c-surface: 38 37 40;
+  --c-sunken: 32 31 33;
+  --c-line: 54 52 56;
+  --c-line-strong: 71 68 74;
+  --c-gold: 212 178 122;
+  --c-gold-dark: 227 198 144;
+  --c-gold-tint: 58 50 38;
+  --c-teal: 79 179 200;
+  --c-teal-dark: 143 211 226;
+  --c-teal-tint: 23 48 57;
+  --c-ink: 243 240 234;
+  --c-text: 218 214 206;
+  --c-muted: 171 166 157;
+  --c-faint: 127 123 116;
+  --c-on-gold: 27 26 28;
+  --c-on-teal: 16 35 41;
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-gold));
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up {
+    animation: none;
+  }
+}
+
+/* Touch polish: no double-tap-zoom delay, no grey tap flash, no auto text inflation.
+   Most candidates book and join from a phone. */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+button,
+a,
+input,
+label {
+  touch-action: manipulation;
+}
+body {
+  -webkit-tap-highlight-color: transparent;
+}
