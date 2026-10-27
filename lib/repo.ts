@@ -97,6 +97,17 @@ export async function findInviteByTokenHash(hash: string): Promise<InviteRecord 
   return data ? toRecord(data as unknown as Row) : null;
 }
 
+export async function findInviteById(bookingId: string): Promise<InviteRecord | null> {
+  if (bookingId === DEMO_BOOKING_ID) return demoInvite();
+  const { data, error } = await supabaseAdmin()
+    .from("cos_recruitment_bookings")
+    .select(INVITE_SELECT)
+    .eq("id", bookingId)
+    .maybeSingle();
+  if (error) throw new Error(`Booking lookup failed: ${error.message}`);
+  return data ? toRecord(data as unknown as Row) : null;
+}
+
 // The recruiter's interviews already booked through this portal, overlapping
 // [from, to). Combined with their Outlook free/busy to work out open slots.
 export async function listRecruiterBookings(recruiterId: string, from: string, to: string): Promise<TimeRange[]> {

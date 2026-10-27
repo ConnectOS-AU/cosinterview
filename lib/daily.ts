@@ -49,3 +49,23 @@ export async function ensureInterviewRoom(
   if (existing.status === 200) return { name: existing.json.name, url: existing.json.url };
   throw new Error(`Daily room create failed: ${created.status} ${JSON.stringify(created.json)}`);
 }
+
+// Meeting token for the recruiter: owner, so they skip the lobby, can admit the
+// candidate and can start recording. user_id tags their audio track as the
+// recruiter's for the transcription worker.
+export async function createOwnerToken(
+  roomName: string,
+  owner: { name: string; recruiterId: string },
+): Promise<string> {
+  const res = await daily<{ token?: string }>("POST", "/meeting-tokens", {
+    properties: {
+      room_name: roomName,
+      is_owner: true,
+      user_name: owner.name,
+      user_id: `recruiter:${owner.recruiterId}`,
+      exp: Math.floor(Date.now() / 1000) + 4 * 60 * 60,
+    },
+  });
+  if (res.status !== 200 || !res.json.token) throw new Error(`Daily token create failed: ${res.status}`);
+  return res.json.token;
+}

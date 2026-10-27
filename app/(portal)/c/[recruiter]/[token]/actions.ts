@@ -3,7 +3,6 @@
 import { DateTime } from "luxon";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { dailyConfigured, ensureInterviewRoom } from "@/lib/daily";
 import { DEMO_BOOKING_ID } from "@/lib/demo";
 import { createInterviewEvent, graphConfigured } from "@/lib/graph";
 import {
@@ -15,8 +14,8 @@ import {
   siteUrl,
 } from "@/lib/invite";
 import { allowRequest } from "@/lib/rate-limit";
-import { claimSlot, saveGraphEvent, saveRoom } from "@/lib/repo";
-import type { InviteRecord } from "@/lib/types";
+import { claimSlot, saveGraphEvent } from "@/lib/repo";
+import { roomForBooking } from "@/lib/rooms";
 
 async function clientKey(action: string): Promise<string> {
   const h = await headers();
@@ -70,7 +69,7 @@ export async function bookInterview(input: {
   // logged for follow-up rather than undoing the candidate's booking.
   const booked = { ...invite, slotStart: startIso, slotEnd: endIso };
   try {
-    await setUpRoom(booked);
+    await roomForBooking(booked);
   } catch (err) {
     console.error("[book] Daily room setup failed", invite.bookingId, err);
   }
@@ -97,17 +96,6 @@ export async function bookInterview(input: {
   return { ok: true };
 }
 
-async function setUpRoom(invite: InviteRecord): Promise<{ url: string } | null> {
-  if (invite.dailyRoomUrl) return { url: invite.dailyRoomUrl };
-  if (!dailyConfigured() || !invite.slotStart || !invite.slotEnd) return null;
-  const room = await ensureInterviewRoom(`cosrec-${invite.bookingId}`, {
-    start: invite.slotStart,
-    end: invite.slotEnd,
-  });
-  await saveRoom(invite.bookingId, room);
-  return { url: room.url };
-}
-
 export type RoomAccess =
   | { ok: true; roomUrl: string | null; candidateName: string; bookingId: string }
   | { ok: false; reason: "invalid" | "not_booked" | "too_early" | "closed" | "unavailable" };
@@ -130,7 +118,7 @@ export async function getRoomAccess(recruiter: string, token: string): Promise<R
   }
 
   try {
-    const room = await setUpRoom(invite);
+    const room = await roomForBooking(invite);
     return { ok: true, roomUrl: room?.url ?? null, candidateName: invite.candidateName, bookingId: invite.bookingId };
   } catch (err) {
     console.error("[room] Daily room setup failed", invite.bookingId, err);

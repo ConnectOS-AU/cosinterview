@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
-import "./globals.css";
+import "../globals.css";
+
+// Root layout for candidate-facing pages: connectos.co branding (matches
+// connectos-bi-chat). The recruiter screens have their own root layout in (staff).
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -31,15 +34,13 @@ const THEME_SCRIPT =
   'var d=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);' +
   'document.documentElement.dataset.theme=d?"dark":"light"}catch(e){}})()';
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function PortalLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
-      <body className={`min-h-screen bg-brand-bg text-brand-text ${poppins.className}`}>
-        {children}
-      </body>
+      <body className={`min-h-screen bg-brand-bg text-brand-text ${poppins.className}`}>{children}</body>
     </html>
   );
 }

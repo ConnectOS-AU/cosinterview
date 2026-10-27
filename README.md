@@ -41,6 +41,26 @@ Interview booking, video interviews and translated transcripts for ConnectOS rec
 Daily setup: raw-tracks recording needs an S3 bucket configured on the Daily domain
 (`recordings_bucket`) before recordings will work.
 
+## Recruiter screens (in COSHub)
+
+Embedded in COSHub's content pane at `https://interviews.connectos.co/r`, styled like COScomms.
+
+| Route | What it does |
+|---|---|
+| `/r` | The signed-in recruiter's interviews: upcoming, awaiting booking, past 30 days. |
+| `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) beside the video. End interview / Mark as no-show. |
+| `/r/login` | Microsoft sign-in (Supabase Auth, Azure provider - same as COSHub). Inside COSHub's frame it opens in a pop-up, because Microsoft's sign-in can't be framed. |
+
+- Access follows COSHub's rule: the person must be an active SCIM-provisioned COSHub user.
+  They then see interviews for the recruiter profile whose `calendar_email` matches their email.
+- Only `COSHUB_ORIGIN` may frame `/r`; candidate pages can't be framed at all.
+- **COSHub change needed:** the content-pane iframe (`src/components/core/ContentPanel.tsx` in
+  cosops) must allow `camera; microphone; display-capture; autoplay; fullscreen`, or the video
+  can't use the recruiter's camera.
+- **Supabase change needed:** add `https://interviews.connectos.co/r/auth/callback` to the
+  Auth redirect allow list.
+- Local demo: without Supabase settings, `npm run dev` signs you in as the demo recruiter at `/r`.
+
 ## Stack
 
 Next.js, Tailwind and Supabase, matching `connectos-bi-chat`. The brand theme

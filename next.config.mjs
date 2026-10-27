@@ -16,9 +16,20 @@ const securityHeaders = [
   { key: "X-Robots-Tag", value: "noindex, nofollow" },
 ];
 
+// The recruiter screens live in COSHub's content pane, so only COSHub may frame
+// them. Candidate pages are never framed.
+const coshubOrigin = process.env.COSHUB_ORIGIN || "https://coshub.connectos.co";
+const staffFrameHeaders = [{ key: "Content-Security-Policy", value: `frame-ancestors 'self' ${coshubOrigin}` }];
+const candidateFrameHeaders = [{ key: "Content-Security-Policy", value: "frame-ancestors 'none'" }];
+
 const nextConfig = {
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/r", headers: staffFrameHeaders },
+      { source: "/r/:path*", headers: staffFrameHeaders },
+      { source: "/c/:path*", headers: candidateFrameHeaders },
+    ];
   },
 };
 

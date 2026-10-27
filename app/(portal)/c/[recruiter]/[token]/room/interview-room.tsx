@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { waitingRoomContent } from "@/content/waiting-room";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
 import type { PublicRecruiter } from "@/lib/types";
-import { BrandLogo } from "../../../../brand-logo";
+import { BrandLogo } from "@/app/brand-logo";
 import { RecruiterAvatar } from "../../../portal-shell";
 import { getRoomAccess } from "../actions";
 

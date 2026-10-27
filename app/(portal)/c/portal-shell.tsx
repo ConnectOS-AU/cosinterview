@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { BrandLogo } from "../brand-logo";
+import { BrandLogo } from "@/app/brand-logo";
 import { initials } from "@/lib/format";
 import type { PublicRecruiter } from "@/lib/types";
 
