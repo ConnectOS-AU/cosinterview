@@ -79,7 +79,7 @@ export async function sendSummaryToJobAdder(bookingId: string): Promise<{ ok: tr
 
   const s = record.summary;
   const text = [
-    `Video interview${invite.interview.jobTitle ? ` - ${invite.interview.jobTitle}` : ""} (ConnectOS Interviews)`,
+    `Video interview${invite.interview.jobTitle ? ` - ${invite.interview.jobTitle}` : ""} (COSInterview)`,
     "",
     s.summary,
     "",

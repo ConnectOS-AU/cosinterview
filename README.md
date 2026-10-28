@@ -1,6 +1,8 @@
-# ConnectOS Recruitment
+# COSInterview
 
 Interview booking, video interviews and translated transcripts for ConnectOS recruitment.
+GitHub: `ConnectOS-AU/COSInterview`. Candidates and recruiters use it at `interviews.connectos.co`;
+candidates see it as "ConnectOS Interviews".
 
 - **Candidate portal** at `interviews.connectos.co`: a standalone public site in
   connectos.co branding. Candidates open their invite link, see their recruiter's photo and

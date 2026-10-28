@@ -3,7 +3,7 @@ import { getStaff } from "@/lib/staff/auth";
 import { safeNextPath } from "@/lib/staff/session";
 import { SignInButton } from "./sign-in-button";
 
-export const metadata = { title: "Sign in · Interviews" };
+export const metadata = { title: "Sign in · COSInterview" };
 export const dynamic = "force-dynamic";
 
 type Props = { searchParams: Promise<{ error?: string; next?: string }> };

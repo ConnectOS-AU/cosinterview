@@ -11,7 +11,7 @@ const geist = Geist({ subsets: ["latin"] });
 export const viewport: Viewport = { width: "device-width", initialScale: 1 };
 
 export const metadata: Metadata = {
-  title: "Interviews",
+  title: "COSInterview",
   robots: { index: false, follow: false },
 };
 
