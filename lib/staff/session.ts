@@ -1,6 +1,7 @@
 import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import type { NextRequest, NextResponse } from "next/server";
 import { demoMode } from "../demo";
 
 // One sign-in shared with COSHub. Both apps use the same Supabase project, so a
@@ -12,6 +13,19 @@ import { demoMode } from "../demo";
 export const authCookieOptions = process.env.AUTH_COOKIE_DOMAIN
   ? { name: "cos-auth", domain: process.env.AUTH_COOKIE_DOMAIN }
   : undefined;
+
+// With the shared cookie on, Supabase's old per-site cookies (sb-<ref>-auth-token,
+// in chunks) were still sent with every request alongside the new one. Microsoft
+// sessions are large, so together they can pass the server's header limit (HTTP
+// 431). The proxy expires them; the names differ from cos-auth, so nothing current
+// is touched. COSHub does the same.
+export function expireOldAuthCookies(request: NextRequest, response: NextResponse): NextResponse {
+  if (!authCookieOptions) return response;
+  for (const { name } of request.cookies.getAll()) {
+    if (/^sb-.+-auth-token/.test(name)) response.cookies.set(name, "", { path: "/", maxAge: 0 });
+  }
+  return response;
+}
 
 // Supabase Auth (Microsoft sign-in) for the recruiter screens, the same way
 // COSHub does it - same Supabase project, so the same Entra users. Cookies are

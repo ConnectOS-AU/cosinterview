@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { authCookieOptions } from "./lib/staff/session";
+import { authCookieOptions, expireOldAuthCookies } from "./lib/staff/session";
 
 // Sign-in gate for the recruiter screens (/r). Refreshes the Supabase session
 // cookie on every request and sends anyone without a session to /r/login.
@@ -11,6 +11,10 @@ import { authCookieOptions } from "./lib/staff/session";
 const PUBLIC_STAFF_PATHS = ["/r/login", "/r/auth/"];
 
 export async function proxy(request: NextRequest) {
+  return expireOldAuthCookies(request, await gate(request));
+}
+
+async function gate(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   if (PUBLIC_STAFF_PATHS.some((p) => pathname === p.replace(/\/$/, "") || pathname.startsWith(p))) {
     return NextResponse.next();
