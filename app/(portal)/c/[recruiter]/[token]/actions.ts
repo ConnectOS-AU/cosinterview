@@ -3,10 +3,14 @@
 import { DateTime } from "luxon";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { googleCalendarUrl, icsFile, outlookCalendarUrl } from "@/lib/calendar";
 import { demoMode } from "@/lib/demo";
-import { createInterviewEvent, graphConfigured } from "@/lib/graph";
+import { bookingConfirmationEmail, formatSlot, recruiterEventBody } from "@/lib/emails";
+import { createInterviewEvent, graphConfigured, sendMailAs } from "@/lib/graph";
 import {
   availableSlots,
+  candidateCalendarEvent,
   invitePath,
   inviteExpired,
   joinWindow,
@@ -16,6 +20,8 @@ import {
 import { allowRequest } from "@/lib/rate-limit";
 import { claimSlot, saveGraphEvent } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
+import { logToJobAdder } from "@/lib/staff/jobadder-api";
+import type { InviteRecord } from "@/lib/types";
 
 async function clientKey(action: string): Promise<string> {
   const h = await headers();
@@ -67,36 +73,92 @@ export async function bookInterview(input: {
   }
   if (claimed !== "ok") return { ok: false, error: "This interview is already booked.", refresh: true };
 
-  // The booking is saved. Room and calendar entry are best-effort here: the room
-  // is created again on join if this fails, and a missing calendar entry is
-  // logged for follow-up rather than undoing the candidate's booking.
-  const booked = { ...invite, slotStart: startIso, slotEnd: endIso };
-  try {
-    await roomForBooking(booked);
-  } catch (err) {
-    console.error("[book] Daily room setup failed", invite.bookingId, err);
-  }
-  if (graphConfigured()) {
-    try {
-      const roomLink = `${siteUrl()}${invitePath(invite, input.token)}/room`;
-      const eventId = await createInterviewEvent(invite.recruiter.calendarEmail, {
-        subject: `Interview: ${invite.candidateName}${invite.interview.jobTitle ? ` – ${invite.interview.jobTitle}` : ""}`,
-        bodyHtml:
-          `<p>Your ConnectOS video interview with ${invite.recruiter.displayName}.</p>` +
-          `<p><a href="${roomLink}">Join the interview</a> (opens 15 minutes before the start time).</p>`,
-        start: startIso,
-        end: endIso,
-        joinUrl: roomLink,
-        candidate: { name: invite.candidateName, email: invite.candidateEmail },
-      });
-      await saveGraphEvent(invite.bookingId, eventId);
-    } catch (err) {
-      console.error("[book] Outlook event creation failed", invite.bookingId, err);
-    }
-  }
+  // The booking is saved. Everything else is best-effort and runs after the
+  // candidate's page has its answer: a failure is logged for follow-up rather
+  // than undoing the booking, and the room is created again on join if needed.
+  const booked: InviteRecord = {
+    ...invite,
+    status: "booked",
+    slotStart: startIso,
+    slotEnd: endIso,
+    candidateTimezone: validTimezone(input.timezone) ? input.timezone : invite.recruiter.timezone,
+  };
+  after(() => afterBooking(booked, input.token));
 
   revalidatePath(invitePath(invite, input.token));
   return { ok: true };
+}
+
+async function afterBooking(booked: InviteRecord, token: string): Promise<void> {
+  const { recruiter, interview } = booked;
+  const start = booked.slotStart!;
+  const end = booked.slotEnd!;
+  const candidateZone = booked.candidateTimezone ?? recruiter.timezone;
+  const recruiterWhen = formatSlot(start, end, recruiter.timezone);
+  const candidateWhen = formatSlot(start, end, candidateZone);
+
+  try {
+    await roomForBooking(booked);
+  } catch (err) {
+    console.error("[book] Daily room setup failed", booked.bookingId, err);
+  }
+
+  if (graphConfigured()) {
+    // 1. The recruiter's Outlook entry, linking to their interview screen.
+    try {
+      const link = `${siteUrl()}/r/bookings/${booked.bookingId}`;
+      const eventId = await createInterviewEvent(recruiter.calendarEmail, {
+        subject: `Interview: ${booked.candidateName}${interview.jobTitle ? ` – ${interview.jobTitle}` : ""}`,
+        bodyHtml: recruiterEventBody({
+          candidateName: booked.candidateName,
+          candidateEmail: booked.candidateEmail,
+          jobTitle: interview.jobTitle,
+          clientName: interview.clientName,
+          candidateWhen: candidateZone === recruiter.timezone ? null : candidateWhen,
+          link,
+        }),
+        start,
+        end,
+        link,
+      });
+      await saveGraphEvent(booked.bookingId, eventId);
+    } catch (err) {
+      console.error("[book] Outlook event creation failed", booked.bookingId, err);
+    }
+
+    // 2. The candidate's confirmation, with the calendar file attached.
+    const event = candidateCalendarEvent(booked, token)!;
+    try {
+      const mail = bookingConfirmationEmail({
+        candidateName: booked.candidateName,
+        recruiterName: recruiter.displayName,
+        recruiterTitle: recruiter.title,
+        jobTitle: interview.jobTitle,
+        when: candidateWhen,
+        bookingPage: `${siteUrl()}${invitePath(booked, token)}`,
+        roomLink: event.url,
+        googleUrl: googleCalendarUrl(event),
+        outlookUrl: outlookCalendarUrl(event),
+      });
+      await sendMailAs(recruiter.calendarEmail, {
+        to: { name: booked.candidateName, email: booked.candidateEmail },
+        ...mail,
+        attachments: [{ name: "connectos-interview.ics", contentType: "text/calendar", content: icsFile(event) }],
+      });
+    } catch (err) {
+      console.error("[book] Confirmation email failed", booked.bookingId, err);
+    }
+  }
+
+  // 3. JobAdder: the time the candidate chose.
+  await logToJobAdder(
+    booked.jobadderCandidateId,
+    [
+      `Interview booked by the candidate via COSInterview${interview.jobTitle ? ` for ${interview.jobTitle}` : ""}.`,
+      `When: ${recruiterWhen}${candidateZone === recruiter.timezone ? "" : ` / candidate's time: ${candidateWhen}`}`,
+      `Length: ${interview.durationMins} minutes. Recruiter: ${recruiter.displayName}.`,
+    ].join("\n"),
+  );
 }
 
 export type RoomAccess =

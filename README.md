@@ -17,7 +17,10 @@ candidates see it as "ConnectOS Interviews".
 1. A recruiter creates an interview for a JobAdder job and invites candidates. Each
    candidate gets a signed, expiring link.
 2. The candidate books a slot from the recruiter's Outlook free/busy time (Microsoft Graph).
-   Booking creates a Daily room named after the booking and an Outlook calendar entry.
+   Booking creates a Daily room named after the booking, an entry in the recruiter's Outlook
+   calendar linking to their interview screen, and a confirmation email to the candidate (from
+   the recruiter's mailbox) with the time in their zone, the join link and a calendar file
+   (.ics attachment plus Google / Outlook.com links). JobAdder gets a note with the chosen time.
 3. Recruiter and candidate join from their own pages. Daily records each participant's
    audio as a separate track (raw-tracks, into our S3 bucket). The recruiter types
    timestamped notes during the call.
@@ -49,8 +52,8 @@ Embedded in COSHub's content pane at `https://interviews.connectos.co/r`, styled
 
 | Route | What it does |
 |---|---|
-| `/r` | The signed-in recruiter's interviews: upcoming, awaiting booking, past 30 days. Row actions: **New link** (lost or expired invite), **Reschedule** (frees the time, cancels the Outlook entry, new link), **Cancel**. |
-| `/r/interviews/new` | Pick a JobAdder job (from the synced `ja_jobs`, open and on hold), tick candidates with active applications (`ja_applications`), choose the length. Creates the interview and one invite per candidate, emails each from the recruiter's Outlook (Graph `Mail.Send`) and shows the links to copy. Links are only shown once - only their hash is stored. |
+| `/r` | The signed-in recruiter's interviews: upcoming, awaiting booking, past 30 days. Row actions: **New link** (lost or expired invite), **Reschedule** (frees the time, removes the Outlook entry, new link), **Cancel** (a booked candidate is emailed). Each step adds a JobAdder note. |
+| `/r/interviews/new` | Pick a JobAdder job (from the synced `ja_jobs`, open and on hold), tick candidates with active applications (`ja_applications`), choose the length and add an optional personal message for the emails. Creates the interview and one invite per candidate, emails each from the recruiter's Outlook (Graph `Mail.Send`) and shows the links to copy, and adds a JobAdder note per candidate. Links are only shown once - only their hash is stored. |
 | `/r/profile` | What candidates see: name, title, photo (Supabase Storage `recruitment-public`, 2 MB), welcome message, bio, time zone. |
 | `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) beside the video. End interview / Mark as no-show. Once completed: summary, scores, notes and the English transcript, and **Add summary to JobAdder**. |
 | `/r/admin` | Admins only (`is_admin` on their recruiter profile). Upcoming interviews for every recruiter, the recruiter list (add, deactivate, make admin) and **Work as**: every recruiter screen then runs as that recruiter (their interviews, new interviews, their profile) with a banner and **Back to my account**. Joining an interview while working as someone uses the admin's own name. |
@@ -130,7 +133,9 @@ Decisions and content (business):
 Test before relying on it:
 
 - [ ] **JobAdder write-back** - the note endpoint in `lib/staff/jobadder-api.ts` couldn't be checked
-  against JobAdder's docs; add a summary for one test candidate and confirm it appears. Also confirm
+  against JobAdder's docs; add a summary for one test candidate and confirm it appears. The automatic
+  activity notes (invite sent, booked, moved, cancelled) use the same endpoint and only log an error
+  if it fails, so check one appears after the first real invite. Also confirm
   refreshing the shared `ja_token` doesn't upset the existing sync.
 - [ ] One end-to-end interview: invite email, booking, Outlook entry, lobby, recording, transcript,
   summary.

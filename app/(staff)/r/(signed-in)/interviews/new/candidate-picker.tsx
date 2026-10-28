@@ -19,6 +19,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [duration, setDuration] = useState<number>(DEFAULT_INTERVIEW_LENGTH);
   const [sendEmail, setSendEmail] = useState(canEmail);
+  const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ sent: SentInvite[]; skipped: string[] } | null>(null);
@@ -42,7 +43,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   function submit() {
     setError(null);
     startTransition(async () => {
-      const res = await createInvitations({ jobId, durationMins: duration, candidateIds: [...selected], sendEmail });
+      const res = await createInvitations({ jobId, durationMins: duration, candidateIds: [...selected], sendEmail, message });
       if (!res.ok) setError(res.error);
       else {
         setResult(res);
@@ -131,6 +132,23 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
           </tbody>
         </table>
       </div>
+
+      <label className="block space-y-1.5 rounded-lg border border-neutral-200 bg-white px-4 py-3">
+        <span className="text-sm font-medium text-neutral-800">Personal message (optional)</span>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          rows={3}
+          maxLength={1000}
+          placeholder="e.g. Great to see your application - I think your Xero experience is a strong fit for this client."
+          className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none"
+        />
+        <span className="block text-xs text-neutral-500">
+          {sendEmail && canEmail
+            ? "Shown at the top of each invite email, above the booking button. Every selected candidate gets the same message."
+            : "Only used in emailed invites - it isn't added to copied links."}
+        </span>
+      </label>
 
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-neutral-200 bg-white px-4 py-3">
         <label className={`flex items-center gap-2 text-sm ${canEmail ? "text-neutral-700" : "text-neutral-400"}`}>

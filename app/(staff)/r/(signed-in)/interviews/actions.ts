@@ -2,19 +2,24 @@
 
 import { DateTime } from "luxon";
 import { revalidatePath } from "next/cache";
-import { cancelInterviewEvent, graphConfigured, sendMailAs } from "@/lib/graph";
+import { after } from "next/server";
+import { cancellationEmail, formatSlot, inviteEmail } from "@/lib/emails";
+import { deleteInterviewEvent, graphConfigured, sendMailAs } from "@/lib/graph";
 import { siteUrl } from "@/lib/invite";
 import { findInviteById, releaseBooking } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
-import { inviteEmail } from "@/lib/staff/invite-email";
 import { INTERVIEW_LENGTHS } from "@/lib/staff/options";
 import { getJob, listApplications } from "@/lib/staff/jobadder";
+import { logToJobAdder } from "@/lib/staff/jobadder-api";
 import { createInvites, invitesForJob, openInterviewFor, replaceInviteToken } from "@/lib/staff/repo";
 import { newInviteToken } from "@/lib/tokens";
 import type { InviteRecord, NewInvite, RecruiterProfile } from "@/lib/types";
 
 const INVITE_DAYS = 14;
 const MAX_PER_BATCH = 50;
+const MAX_MESSAGE = 1000;
+
+const inviteExpiry = (iso: string) => DateTime.fromISO(iso).setZone("Asia/Manila").toFormat("d LLLL yyyy");
 
 export type SentInvite = {
   name: string;
@@ -33,7 +38,14 @@ function linkFor(recruiter: Pick<RecruiterProfile, "slug">, token: string): stri
 async function emailInvite(
   recruiter: RecruiterProfile,
   to: { name: string; email: string },
-  details: { jobTitle: string | null; durationMins: number; link: string; expiresAt: string; reschedule?: boolean },
+  details: {
+    jobTitle: string | null;
+    durationMins: number;
+    link: string;
+    expiresAt: string;
+    reschedule?: boolean;
+    message?: string | null;
+  },
 ): Promise<string | undefined> {
   try {
     const mail = inviteEmail({
@@ -58,6 +70,8 @@ export async function createInvitations(input: {
   durationMins: number;
   candidateIds: string[];
   sendEmail: boolean;
+  // Optional personal note shown at the top of each invite email.
+  message?: string;
 }): Promise<CreateInvitesResult> {
   const staff = await requireRecruiter();
   const recruiter = staff.recruiter;
@@ -101,6 +115,7 @@ export async function createInvitations(input: {
   const interview = await openInterviewFor(recruiter, job, input.durationMins, staff.userId);
   const created = await createInvites(recruiter, interview, invites);
   const canEmail = input.sendEmail && graphConfigured();
+  const message = input.message?.trim().slice(0, MAX_MESSAGE) || null;
 
   const sent: SentInvite[] = [];
   for (const invite of invites) {
@@ -110,10 +125,25 @@ export async function createInvitations(input: {
     }
     const link = linkFor(recruiter, tokens.get(invite.candidateId)!);
     const error = canEmail
-      ? await emailInvite(recruiter, invite, { jobTitle: job.title, durationMins: input.durationMins, link, expiresAt })
+      ? await emailInvite(recruiter, invite, { jobTitle: job.title, durationMins: input.durationMins, link, expiresAt, message })
       : undefined;
     sent.push({ name: invite.name, email: invite.email, link, emailed: canEmail && !error, error });
   }
+
+  // JobAdder: the invite went out (or the link was handed over to send).
+  const sentIds = invites.filter((i) => created.has(i.candidateId));
+  after(async () => {
+    for (const invite of sentIds) {
+      const emailed = sent.find((x) => x.email === invite.email)?.emailed;
+      await logToJobAdder(
+        invite.candidateId,
+        [
+          `Interview invite ${emailed ? "emailed" : "link created"} via COSInterview for ${job.title}: ${input.durationMins}-minute video interview with ${recruiter.displayName}.`,
+          `Waiting for the candidate to choose a time. The link works until ${inviteExpiry(expiresAt)}.`,
+        ].join("\n"),
+      );
+    }
+  });
 
   revalidatePath("/r");
   return { ok: true, sent, skipped };
@@ -128,14 +158,17 @@ async function ownBooking(bookingId: string): Promise<{ recruiter: RecruiterProf
   return { recruiter, invite };
 }
 
-async function cancelOutlookEntry(invite: InviteRecord, comment: string): Promise<void> {
+async function removeOutlookEntry(invite: InviteRecord): Promise<void> {
   if (!invite.graphEventId || !graphConfigured()) return;
   try {
-    await cancelInterviewEvent(invite.recruiter.calendarEmail, invite.graphEventId, comment);
+    await deleteInterviewEvent(invite.recruiter.calendarEmail, invite.graphEventId);
   } catch (err) {
-    console.error("[cancel] Outlook cancellation failed", invite.bookingId, err);
+    console.error("[cancel] Removing the Outlook entry failed", invite.bookingId, err);
   }
 }
+
+const bookedWhen = (invite: InviteRecord, zone: string) =>
+  invite.slotStart && invite.slotEnd ? formatSlot(invite.slotStart, invite.slotEnd, zone) : null;
 
 export type LinkResult = { ok: true; link: string; emailed: boolean; error?: string } | { ok: false; error: string };
 
@@ -165,7 +198,8 @@ export async function resendInvite(bookingId: string, sendEmail: boolean): Promi
 export async function rescheduleBooking(bookingId: string, sendEmail: boolean): Promise<LinkResult> {
   const { recruiter, invite } = await ownBooking(bookingId);
   if (invite.status !== "booked") return { ok: false, error: "Only booked interviews that haven't started can be moved." };
-  await cancelOutlookEntry(invite, "This interview is being moved - you'll get a link to choose a new time.");
+  const was = bookedWhen(invite, recruiter.timezone);
+  await removeOutlookEntry(invite);
   const { token, hash } = newInviteToken();
   const expiresAt = DateTime.utc().plus({ days: INVITE_DAYS }).endOf("day").toISO()!;
   await releaseBooking(bookingId, { status: "invited", tokenHash: hash, expiresAt });
@@ -178,6 +212,12 @@ export async function rescheduleBooking(bookingId: string, sendEmail: boolean): 
         { jobTitle: invite.interview.jobTitle, durationMins: invite.interview.durationMins, link, expiresAt, reschedule: true },
       )
     : undefined;
+  after(() =>
+    logToJobAdder(
+      invite.jobadderCandidateId,
+      `Interview${was ? ` on ${was}` : ""} moved via COSInterview: the candidate has a new link to choose another time (works until ${inviteExpiry(expiresAt)}).`,
+    ),
+  );
   // No revalidatePath: the row would move sections and the new link would vanish
   // before it's copied. The list refreshes when the recruiter closes it.
   return { ok: true, link, emailed: canEmail && !error, error };
@@ -188,8 +228,32 @@ export async function cancelBooking(bookingId: string): Promise<{ ok: true } | {
   if (invite.status !== "invited" && invite.status !== "booked") {
     return { ok: false, error: "This interview can't be cancelled now." };
   }
-  await cancelOutlookEntry(invite, "This interview has been cancelled.");
+  // Read before releasing: releasing clears the booked time.
+  const candidateWhen = bookedWhen(invite, invite.candidateTimezone ?? invite.recruiter.timezone);
+  const was = bookedWhen(invite, invite.recruiter.timezone);
+  await removeOutlookEntry(invite);
   await releaseBooking(bookingId, { status: "cancelled" });
+
+  // A booked candidate is told; someone who hadn't booked just finds the link no longer works.
+  if (candidateWhen && graphConfigured()) {
+    try {
+      await sendMailAs(invite.recruiter.calendarEmail, {
+        to: { name: invite.candidateName, email: invite.candidateEmail },
+        ...cancellationEmail({
+          candidateName: invite.candidateName,
+          recruiterName: invite.recruiter.displayName,
+          recruiterTitle: invite.recruiter.title,
+          jobTitle: invite.interview.jobTitle,
+          when: candidateWhen,
+        }),
+      });
+    } catch (err) {
+      console.error("[cancel] Cancellation email failed", bookingId, err);
+    }
+  }
+  after(() =>
+    logToJobAdder(invite.jobadderCandidateId, `Interview${was ? ` on ${was}` : " invite"} cancelled via COSInterview.`),
+  );
   revalidatePath("/r");
   return { ok: true };
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { DateTime } from "luxon";
 import { bookingWindow, freeSlots } from "./availability";
+import type { CalendarEvent } from "./calendar";
 import { DEMO_BOOKING_ID, demoInviteById, isDemoInvite } from "./demo";
 import { getBusy, graphConfigured } from "./graph";
 import { findInviteByTokenHash, listRecruiterBookings } from "./repo";
@@ -75,4 +76,18 @@ export function siteUrl(): string {
 
 export function invitePath(invite: InviteRecord, token: string): string {
   return `/c/${invite.recruiter.slug}/${token}`;
+}
+
+// The candidate's calendar entry for a booked interview, pointing at their room.
+export function candidateCalendarEvent(invite: InviteRecord, token: string): CalendarEvent | null {
+  if (!invite.slotStart || !invite.slotEnd) return null;
+  const roomLink = `${siteUrl()}${invitePath(invite, token)}/room`;
+  return {
+    uid: `${invite.bookingId}@interviews.connectos.co`,
+    title: `ConnectOS interview with ${invite.recruiter.displayName}`,
+    description: `Join your video interview here: ${roomLink}\nThe room opens 15 minutes before the start time.`,
+    start: invite.slotStart,
+    end: invite.slotEnd,
+    url: roomLink,
+  };
 }

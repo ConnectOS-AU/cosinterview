@@ -1,4 +1,5 @@
 import "server-only";
+import { demoMode } from "../demo";
 import { supabaseAdmin } from "../supabase/admin";
 
 // Writes back to JobAdder. Reuses the OAuth token the existing JobAdder sync
@@ -58,4 +59,17 @@ export async function addCandidateNote(candidateId: string, text: string): Promi
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`JobAdder note failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+}
+
+// Activity notes (invite sent, interview booked): best-effort, so a JobAdder
+// problem never stops an invite or a booking. Off until write-back is set up;
+// the local demo logs them instead.
+export async function logToJobAdder(candidateId: string, text: string): Promise<void> {
+  if (demoMode()) return console.info("[jobadder note - demo]", candidateId, text);
+  if (!jobAdderWriteConfigured()) return;
+  try {
+    await addCandidateNote(candidateId, text);
+  } catch (err) {
+    console.error("[jobadder note]", candidateId, err);
+  }
 }

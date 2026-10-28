@@ -68,50 +68,51 @@ export async function getBusy(calendarEmail: string, from: DateTime, to: DateTim
     }));
 }
 
-// Puts the interview in the recruiter's calendar with the candidate as an
-// attendee, so Outlook also emails the candidate an invitation.
+// The recruiter's own Outlook entry for a booked interview. No attendees: the
+// candidate gets their own confirmation email with a calendar file instead, so
+// this entry can link to the recruiter's interview screen.
 export async function createInterviewEvent(
   calendarEmail: string,
-  event: {
-    subject: string;
-    bodyHtml: string;
-    start: string;
-    end: string;
-    joinUrl: string;
-    candidate: { name: string; email: string };
-  },
+  event: { subject: string; bodyHtml: string; start: string; end: string; link: string },
 ): Promise<string> {
   const json = await graph<{ id: string }>(`/users/${encodeURIComponent(calendarEmail)}/events`, {
     subject: event.subject,
     body: { contentType: "HTML", content: event.bodyHtml },
     start: { dateTime: DateTime.fromISO(event.start).toUTC().toFormat("yyyy-LL-dd'T'HH:mm:ss"), timeZone: "UTC" },
     end: { dateTime: DateTime.fromISO(event.end).toUTC().toFormat("yyyy-LL-dd'T'HH:mm:ss"), timeZone: "UTC" },
-    location: { displayName: "ConnectOS video interview", locationUri: event.joinUrl },
-    attendees: [{ emailAddress: { address: event.candidate.email, name: event.candidate.name }, type: "required" }],
+    location: { displayName: "COSInterview", locationUri: event.link },
     isOnlineMeeting: false,
-    allowNewTimeProposals: false,
+    isReminderOn: true,
+    reminderMinutesBeforeStart: 15,
   });
   return json.id;
 }
 
-// Cancels the Outlook entry; Outlook sends the candidate a cancellation.
-export async function cancelInterviewEvent(calendarEmail: string, eventId: string, comment: string): Promise<void> {
-  await graph<void>(
-    `/users/${encodeURIComponent(calendarEmail)}/events/${encodeURIComponent(eventId)}/cancel`,
-    { comment },
-  );
+// Removes the recruiter's Outlook entry. Entries made before candidates got
+// their own confirmation had the candidate as an attendee; deleting those as the
+// organizer still sends the candidate Outlook's cancellation.
+export async function deleteInterviewEvent(calendarEmail: string, eventId: string): Promise<void> {
+  await graph<void>(`/users/${encodeURIComponent(calendarEmail)}/events/${encodeURIComponent(eventId)}`, undefined, "DELETE");
 }
+
+export type MailAttachment = { name: string; contentType: string; content: string };
 
 // Sends an email from the recruiter's own mailbox (it appears in their Sent Items).
 export async function sendMailAs(
   fromEmail: string,
-  mail: { to: { name: string; email: string }; subject: string; bodyHtml: string },
+  mail: { to: { name: string; email: string }; subject: string; bodyHtml: string; attachments?: MailAttachment[] },
 ): Promise<void> {
   await graph<void>(`/users/${encodeURIComponent(fromEmail)}/sendMail`, {
     message: {
       subject: mail.subject,
       body: { contentType: "HTML", content: mail.bodyHtml },
       toRecipients: [{ emailAddress: { address: mail.to.email, name: mail.to.name } }],
+      attachments: (mail.attachments ?? []).map((a) => ({
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        name: a.name,
+        contentType: a.contentType,
+        contentBytes: Buffer.from(a.content, "utf8").toString("base64"),
+      })),
     },
     saveToSentItems: true,
   });
