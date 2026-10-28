@@ -70,7 +70,7 @@ export async function availableSlots(invite: InviteRecord): Promise<string[]> {
 }
 
 export function siteUrl(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3008").replace(/\/$/, "");
 }
 
 export function invitePath(invite: InviteRecord, token: string): string {
