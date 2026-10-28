@@ -37,7 +37,10 @@ export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
     }
     const room = await roomForBooking(invite);
     if (!room) return { ok: true, roomUrl: null, token: null };
-    const token = await createOwnerToken(room.name, { name: staff.recruiter.displayName, recruiterId: staff.recruiter.id });
+    // An admin working as this recruiter joins under their own name, still on the
+    // recruiter side so the transcript labels them as the interviewer.
+    const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
+    const token = await createOwnerToken(room.name, { name, recruiterId: staff.recruiter.id });
     return { ok: true, roomUrl: room.url, token };
   } catch (err) {
     console.error("[recruiter join]", bookingId, err);

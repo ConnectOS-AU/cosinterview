@@ -7,13 +7,13 @@ import { ProfileForm } from "./profile-form";
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const { recruiter } = await requireRecruiter();
+  const { recruiter, actingAs } = await requireRecruiter();
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-6 py-8">
       <div>
-        <h1 className="text-2xl font-semibold text-neutral-900">My profile</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900">{actingAs ? `${recruiter.displayName}’s profile` : "My profile"}</h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Candidates see this when they open your invite link. Your link name is <code>/c/{recruiter.slug}/…</code>
+          Candidates see this when they open {actingAs ? "their" : "your"} invite link. The link name is <code>/c/{recruiter.slug}/…</code>
           {demoMode() && (
             <>
               {" "}

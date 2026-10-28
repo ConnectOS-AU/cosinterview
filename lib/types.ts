@@ -69,6 +69,8 @@ export type RecruiterProfile = {
   timezone: string;
   calendarEmail: string;
   active: boolean;
+  // Admins manage the recruiter list at /r/admin.
+  isAdmin: boolean;
 };
 
 export type BookingSummary = {

@@ -1,6 +1,6 @@
 import "server-only";
 import { DateTime } from "luxon";
-import { demoId, demoInviteById, demoInvites, demoMode, demoStore, inviteFor, updateDemoInvite } from "../demo";
+import { demoId, demoInviteById, demoInvites, demoMode, demoRecruiters, demoStore, inviteFor, updateDemoInvite } from "../demo";
 import { supabaseAdmin } from "../supabase/admin";
 import type {
   BookingStatus,
@@ -16,7 +16,7 @@ import type {
 
 export type { BookingSummary, InterviewNote, RecruiterProfile };
 
-const RECRUITER_COLUMNS = "id, user_id, slug, display_name, title, photo_path, bio, welcome_message, timezone, calendar_email, active";
+const RECRUITER_COLUMNS = "id, user_id, slug, display_name, title, photo_path, bio, welcome_message, timezone, calendar_email, active, is_admin";
 
 type RecruiterRow = {
   id: string;
@@ -30,6 +30,7 @@ type RecruiterRow = {
   timezone: string;
   calendar_email: string;
   active: boolean;
+  is_admin: boolean;
 };
 
 function toRecruiter(row: RecruiterRow): RecruiterProfile {
@@ -45,6 +46,7 @@ function toRecruiter(row: RecruiterRow): RecruiterProfile {
     timezone: row.timezone,
     calendarEmail: row.calendar_email,
     active: row.active,
+    isAdmin: row.is_admin,
   };
 }
 
@@ -74,6 +76,22 @@ export async function findRecruiterByEmail(email: string): Promise<RecruiterProf
   return data ? toRecruiter(data as RecruiterRow) : null;
 }
 
+export async function findRecruiterById(id: string): Promise<RecruiterProfile | null> {
+  if (demoMode()) {
+    const r = demoRecruiters().find((x) => x.id === id && x.active);
+    return r ? { ...r } : null;
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const { data, error } = await supabaseAdmin()
+    .from("cos_recruitment_recruiters")
+    .select(RECRUITER_COLUMNS)
+    .eq("id", id)
+    .eq("active", true)
+    .maybeSingle();
+  if (error) throw new Error(`Recruiter lookup failed: ${error.message}`);
+  return data ? toRecruiter(data as RecruiterRow) : null;
+}
+
 export function demoRecruiter(): RecruiterProfile {
   return { ...demoStore().recruiter };
 }
@@ -84,7 +102,8 @@ export type ProfileFields = Pick<RecruiterProfile, "displayName" | "title" | "bi
 
 export async function updateRecruiterProfile(recruiterId: string, fields: ProfileFields): Promise<void> {
   if (demoMode()) {
-    Object.assign(demoStore().recruiter, fields);
+    const r = demoRecruiters().find((x) => x.id === recruiterId);
+    if (r) Object.assign(r, fields);
     return;
   }
   const { error } = await supabaseAdmin()
@@ -99,6 +118,85 @@ export async function updateRecruiterProfile(recruiterId: string, fields: Profil
     })
     .eq("id", recruiterId);
   if (error) throw new Error(`Saving profile failed: ${error.message}`);
+}
+
+// --- Admin: the recruiter list ------------------------------------------------
+
+export async function listRecruiters(): Promise<RecruiterProfile[]> {
+  if (demoMode()) {
+    return demoRecruiters().map((r) => ({ ...r }));
+  }
+  const { data, error } = await supabaseAdmin()
+    .from("cos_recruitment_recruiters")
+    .select(RECRUITER_COLUMNS)
+    .order("active", { ascending: false })
+    .order("display_name");
+  if (error) throw new Error(`Recruiter list failed: ${error.message}`);
+  return (data as RecruiterRow[]).map(toRecruiter);
+}
+
+export type NewRecruiter = { displayName: string; email: string; title: string | null; isAdmin: boolean };
+
+// The portal link name (/c/<slug>/...): from the name, numbered if taken.
+function slugFor(name: string, taken: Set<string>): string {
+  const base =
+    name
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "recruiter";
+  let slug = base;
+  for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
+  return slug;
+}
+
+export async function createRecruiter(fields: NewRecruiter): Promise<"ok" | "email_taken"> {
+  const email = fields.email.trim().toLowerCase();
+  const existing = await listRecruiters();
+  if (existing.some((r) => r.calendarEmail.toLowerCase() === email)) return "email_taken";
+  const recruiter: RecruiterProfile = {
+    id: demoId("recruiter"),
+    userId: null,
+    slug: slugFor(fields.displayName, new Set(existing.map((r) => r.slug))),
+    displayName: fields.displayName,
+    title: fields.title,
+    photoPath: null,
+    bio: null,
+    welcomeMessage: null,
+    timezone: "Asia/Manila",
+    calendarEmail: email,
+    active: true,
+    isAdmin: fields.isAdmin,
+  };
+  if (demoMode()) {
+    demoStore().otherRecruiters.push(recruiter);
+    return "ok";
+  }
+  const { error } = await supabaseAdmin().from("cos_recruitment_recruiters").insert({
+    slug: recruiter.slug,
+    display_name: recruiter.displayName,
+    title: recruiter.title,
+    calendar_email: recruiter.calendarEmail,
+    is_admin: recruiter.isAdmin,
+  });
+  if (error?.code === "23505") return "email_taken"; // added by someone else just now
+  if (error) throw new Error(`Adding recruiter failed: ${error.message}`);
+  return "ok";
+}
+
+export async function setRecruiterAccess(recruiterId: string, fields: { active?: boolean; isAdmin?: boolean }): Promise<void> {
+  if (demoMode()) {
+    const r = demoRecruiters().find((x) => x.id === recruiterId);
+    if (r) Object.assign(r, fields);
+    return;
+  }
+  const { error } = await supabaseAdmin()
+    .from("cos_recruitment_recruiters")
+    .update({ active: fields.active, is_admin: fields.isAdmin })
+    .eq("id", recruiterId);
+  if (error) throw new Error(`Updating recruiter failed: ${error.message}`);
 }
 
 // --- Bookings ----------------------------------------------------------------
@@ -146,6 +244,64 @@ export async function listBookingsForRecruiter(recruiterId: string): Promise<Boo
       slotStart: row.slot_start,
       slotEnd: row.slot_end,
       inviteExpiresAt: row.invite_expires_at,
+    };
+  });
+}
+
+export type UpcomingBooking = BookingSummary & { recruiterId: string; recruiterName: string };
+
+// Admin overview: every recruiter's booked interviews from an hour ago onwards.
+export async function listUpcomingBookings(limit = 200): Promise<UpcomingBooking[]> {
+  const from = DateTime.utc().minus({ hours: 1 }).toISO()!;
+  if (demoMode()) {
+    return demoInvites()
+      .filter((d) => (d.status === "booked" || d.status === "in_progress") && d.slotStart && d.slotStart >= from)
+      .map((d) => ({
+        bookingId: d.bookingId,
+        interviewId: d.interview.id,
+        status: d.status,
+        candidateName: d.candidateName,
+        candidateEmail: d.candidateEmail,
+        jobTitle: d.interview.jobTitle,
+        clientName: d.interview.clientName,
+        slotStart: d.slotStart,
+        slotEnd: d.slotEnd,
+        inviteExpiresAt: d.inviteExpiresAt,
+        recruiterId: d.recruiter.id,
+        recruiterName: d.recruiter.displayName,
+      }))
+      .sort((a, b) => a.slotStart!.localeCompare(b.slotStart!));
+  }
+  const { data, error } = await supabaseAdmin()
+    .from("cos_recruitment_bookings")
+    .select(
+      "id, interview_id, status, candidate_name, candidate_email, slot_start, slot_end, invite_expires_at, interview:cos_recruitment_interviews!inner(recruiter_id, job_title, client_name, recruiter:cos_recruitment_recruiters!inner(display_name))",
+    )
+    .in("status", ["booked", "in_progress"])
+    .gte("slot_start", from)
+    .order("slot_start", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(`Upcoming interviews failed: ${error.message}`);
+  return (data ?? []).map((row) => {
+    const interview = row.interview as unknown as {
+      recruiter_id: string;
+      job_title: string | null;
+      client_name: string | null;
+      recruiter: { display_name: string };
+    };
+    return {
+      bookingId: row.id,
+      interviewId: row.interview_id,
+      status: row.status as BookingStatus,
+      candidateName: row.candidate_name,
+      candidateEmail: row.candidate_email,
+      jobTitle: interview.job_title,
+      clientName: interview.client_name,
+      slotStart: row.slot_start,
+      slotEnd: row.slot_end,
+      inviteExpiresAt: row.invite_expires_at,
+      recruiterId: interview.recruiter_id,
+      recruiterName: interview.recruiter.display_name,
     };
   });
 }

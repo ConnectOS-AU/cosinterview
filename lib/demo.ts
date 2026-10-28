@@ -31,6 +31,8 @@ type DemoInvite = InviteRecord & { tokenHash: string | null };
 
 type DemoStore = {
   recruiter: RecruiterProfile;
+  // Everyone else on the admin page.
+  otherRecruiters: RecruiterProfile[];
   interviews: InterviewRound[];
   invites: DemoInvite[];
   notes: Map<string, InterviewNote[]>;
@@ -53,6 +55,7 @@ function seed(): DemoStore {
     timezone: "Asia/Manila",
     calendarEmail: "demo@connectos.co",
     active: true,
+    isAdmin: true,
   };
   const interview: InterviewRound = {
     id: "demo-interview",
@@ -66,6 +69,19 @@ function seed(): DemoStore {
   };
   return {
     recruiter,
+    otherRecruiters: [
+      {
+        ...recruiter,
+        id: "demo-recruiter-2",
+        slug: "jasmine-cruz",
+        displayName: "Jasmine Cruz",
+        title: "Recruitment Consultant",
+        bio: null,
+        welcomeMessage: null,
+        calendarEmail: "jasmine.cruz@connectos.co",
+        isAdmin: false,
+      },
+    ],
     interviews: [interview],
     invites: [
       {
@@ -137,10 +153,19 @@ export function inviteFor(
   };
 }
 
+// The signed-in demo recruiter first, then everyone else.
+export function demoRecruiters(): RecruiterProfile[] {
+  const store = demoStore();
+  return [store.recruiter, ...store.otherRecruiters];
+}
+
 // Invites always reflect the latest recruiter profile.
 export function demoInvites(): DemoInvite[] {
-  const { recruiter, invites } = demoStore();
+  const { invites } = demoStore();
+  const recruiters = demoRecruiters();
   for (const invite of invites) {
+    const recruiter = recruiters.find((r) => r.id === invite.recruiter.id);
+    if (!recruiter) continue;
     Object.assign(invite.recruiter, {
       displayName: recruiter.displayName,
       title: recruiter.title,

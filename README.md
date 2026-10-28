@@ -53,6 +53,7 @@ Embedded in COSHub's content pane at `https://interviews.connectos.co/r`, styled
 | `/r/interviews/new` | Pick a JobAdder job (from the synced `ja_jobs`, open and on hold), tick candidates with active applications (`ja_applications`), choose the length. Creates the interview and one invite per candidate, emails each from the recruiter's Outlook (Graph `Mail.Send`) and shows the links to copy. Links are only shown once - only their hash is stored. |
 | `/r/profile` | What candidates see: name, title, photo (Supabase Storage `recruitment-public`, 2 MB), welcome message, bio, time zone. |
 | `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) beside the video. End interview / Mark as no-show. Once completed: summary, scores, notes and the English transcript, and **Add summary to JobAdder**. |
+| `/r/admin` | Admins only (`is_admin` on their recruiter profile). Upcoming interviews for every recruiter, the recruiter list (add, deactivate, make admin) and **Work as**: every recruiter screen then runs as that recruiter (their interviews, new interviews, their profile) with a banner and **Back to my account**. Joining an interview while working as someone uses the admin's own name. |
 | `/r/login` | Microsoft sign-in (Supabase Auth, Azure provider - same as COSHub). Inside COSHub's frame it opens in a pop-up, because Microsoft's sign-in can't be framed. |
 
 - Access follows COSHub's rule: the person must be an active SCIM-provisioned COSHub user.
@@ -116,8 +117,8 @@ Accounts and access (IT / admin):
 - [ ] **Worker schedule**: `POST /api/worker/run` every 15 minutes with `WORKER_SECRET`.
 - [ ] **COSHub**: merge the cosops iframe change, then add a menu item embedding
   `https://interviews.connectos.co/r` (Admin: menu access).
-- [ ] **Recruiter profiles**: one `cos_recruitment_recruiters` row per recruiter (slug, display name,
-  `calendar_email` = their Microsoft sign-in email). Each recruiter then completes /r/profile.
+- [ ] **Recruiter profiles**: an admin adds each recruiter at /r/admin (name and Microsoft email).
+  Each recruiter then completes /r/profile, or an admin does it for them with Work as.
 
 Decisions and content (business):
 
@@ -143,8 +144,9 @@ Next.js, Tailwind and Supabase, matching `connectos-bi-chat`. The brand theme
 
 Tables are prefixed `cos_recruitment_` in the ConnectOS Supabase project. Migrations live in
 `db/migrations/`, applied in number order: `001` creates the schema, `002` adds foreign-key
-indexes, `003` hardening (grants, booking function, photo bucket, retention job) and `004` the
-worker queue functions. All four are applied to the ConnectOS Database project.
+indexes, `003` hardening (grants, booking function, photo bucket, retention job), `004` the
+worker queue functions and `005` recruiter admins (with Simon as the first admin). All five are
+applied to the ConnectOS Database project.
 
 ## Local setup
 

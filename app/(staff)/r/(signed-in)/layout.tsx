@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStaff } from "@/lib/staff/auth";
+import { stopWorkingAs } from "./admin/actions";
 
 // COScomms-style header: just the sections, bold, since COSHub already shows
 // the ConnectOS branding around this frame.
@@ -22,8 +23,13 @@ export default async function SignedInLayout({ children }: { children: React.Rea
               New interview
             </Link>
             <Link href="/r/profile" className={NAV_LINK}>
-              My profile
+              {staff.actingAs ? "Profile" : "My profile"}
             </Link>
+            {staff.own?.isAdmin && (
+              <Link href="/r/admin" className={NAV_LINK}>
+                Admin
+              </Link>
+            )}
           </nav>
           <div className="flex items-center gap-4">
             <span className="text-sm text-neutral-500">{staff.email}</span>
@@ -35,6 +41,21 @@ export default async function SignedInLayout({ children }: { children: React.Rea
           </div>
         </div>
       </header>
+      {staff.actingAs && staff.recruiter && (
+        <div className="border-b border-amber-200 bg-amber-50">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-2.5 text-sm text-amber-900">
+            <span>
+              You&apos;re working as <strong>{staff.recruiter.displayName}</strong>. Interviews, invites and profile changes are
+              made for them.
+            </span>
+            <form action={stopWorkingAs}>
+              <button type="submit" className="font-medium underline hover:text-amber-950">
+                Back to my account
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
       {staff.recruiter ? (
         children
       ) : (
