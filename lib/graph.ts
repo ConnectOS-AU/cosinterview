@@ -2,9 +2,10 @@ import "server-only";
 import { DateTime } from "luxon";
 import type { TimeRange } from "./types";
 
-// Microsoft Graph with app-only (client credentials) auth. Needs the
-// Calendars.ReadWrite and Mail.Send application permissions, limited to
-// recruiter mailboxes with an application access policy.
+// Microsoft Graph with app-only (client credentials) auth, for recruiters'
+// calendars only: free/busy and their interview entries. Candidate emails go
+// through SendGrid (lib/mail.ts). Needs the Calendars.ReadWrite application
+// permission, limited to recruiter mailboxes with an application access policy.
 
 export function graphConfigured(): boolean {
   return Boolean(process.env.MS_TENANT_ID && process.env.MS_CLIENT_ID && process.env.MS_CLIENT_SECRET);
@@ -93,27 +94,4 @@ export async function createInterviewEvent(
 // organizer still sends the candidate Outlook's cancellation.
 export async function deleteInterviewEvent(calendarEmail: string, eventId: string): Promise<void> {
   await graph<void>(`/users/${encodeURIComponent(calendarEmail)}/events/${encodeURIComponent(eventId)}`, undefined, "DELETE");
-}
-
-export type MailAttachment = { name: string; contentType: string; content: string };
-
-// Sends an email from the recruiter's own mailbox (it appears in their Sent Items).
-export async function sendMailAs(
-  fromEmail: string,
-  mail: { to: { name: string; email: string }; subject: string; bodyHtml: string; attachments?: MailAttachment[] },
-): Promise<void> {
-  await graph<void>(`/users/${encodeURIComponent(fromEmail)}/sendMail`, {
-    message: {
-      subject: mail.subject,
-      body: { contentType: "HTML", content: mail.bodyHtml },
-      toRecipients: [{ emailAddress: { address: mail.to.email, name: mail.to.name } }],
-      attachments: (mail.attachments ?? []).map((a) => ({
-        "@odata.type": "#microsoft.graph.fileAttachment",
-        name: a.name,
-        contentType: a.contentType,
-        contentBytes: Buffer.from(a.content, "utf8").toString("base64"),
-      })),
-    },
-    saveToSentItems: true,
-  });
 }

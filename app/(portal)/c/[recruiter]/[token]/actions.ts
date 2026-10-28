@@ -7,7 +7,7 @@ import { after } from "next/server";
 import { googleCalendarUrl, icsFile, outlookCalendarUrl } from "@/lib/calendar";
 import { demoMode } from "@/lib/demo";
 import { bookingConfirmationEmail, formatSlot, recruiterEventBody } from "@/lib/emails";
-import { createInterviewEvent, graphConfigured, sendMailAs } from "@/lib/graph";
+import { createInterviewEvent, graphConfigured } from "@/lib/graph";
 import {
   availableSlots,
   candidateCalendarEvent,
@@ -17,6 +17,7 @@ import {
   loadInvite,
   siteUrl,
 } from "@/lib/invite";
+import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
 import { allowRequest } from "@/lib/rate-limit";
 import { claimSlot, saveGraphEvent } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
@@ -125,11 +126,14 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
     } catch (err) {
       console.error("[book] Outlook event creation failed", booked.bookingId, err);
     }
+  }
 
-    // 2. The candidate's confirmation, with the calendar file attached.
+  // 2. The candidate's confirmation, with the calendar file attached.
+  let emailNote: string | null = null;
+  if (mailConfigured()) {
     const event = candidateCalendarEvent(booked, token)!;
     try {
-      const mail = bookingConfirmationEmail({
+      const content = bookingConfirmationEmail({
         candidateName: booked.candidateName,
         recruiterName: recruiter.displayName,
         recruiterTitle: recruiter.title,
@@ -140,25 +144,28 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
         googleUrl: googleCalendarUrl(event),
         outlookUrl: outlookCalendarUrl(event),
       });
-      await sendMailAs(recruiter.calendarEmail, {
+      const mail = {
         to: { name: booked.candidateName, email: booked.candidateEmail },
-        ...mail,
-        attachments: [{ name: "connectos-interview.ics", contentType: "text/calendar", content: icsFile(event) }],
-      });
+        recruiter: { name: recruiter.displayName, email: recruiter.calendarEmail },
+        subject: content.subject,
+        html: content.bodyHtml,
+        text: content.text,
+        attachments: [{ filename: "connectos-interview.ics", contentType: "text/calendar", content: icsFile(event) }],
+      };
+      await sendCandidateMail(mail);
+      emailNote = mailForNote(mail);
     } catch (err) {
       console.error("[book] Confirmation email failed", booked.bookingId, err);
     }
   }
 
-  // 3. JobAdder: the time the candidate chose.
-  await logToJobAdder(
-    booked.jobadderCandidateId,
-    [
-      `Interview booked by the candidate via COSInterview${interview.jobTitle ? ` for ${interview.jobTitle}` : ""}.`,
-      `When: ${recruiterWhen}${candidateZone === recruiter.timezone ? "" : ` / candidate's time: ${candidateWhen}`}`,
-      `Length: ${interview.durationMins} minutes. Recruiter: ${recruiter.displayName}.`,
-    ].join("\n"),
-  );
+  // 3. JobAdder: the time the candidate chose, and the confirmation they got.
+  const summary = [
+    `Interview booked by the candidate via COSInterview${interview.jobTitle ? ` for ${interview.jobTitle}` : ""}.`,
+    `When: ${recruiterWhen}${candidateZone === recruiter.timezone ? "" : ` / candidate's time: ${candidateWhen}`}`,
+    `Length: ${interview.durationMins} minutes. Recruiter: ${recruiter.displayName}.`,
+  ].join("\n");
+  await logToJobAdder(booked.jobadderCandidateId, emailNote ? `${summary}\n\n${emailNote}` : summary);
 }
 
 export type RoomAccess =

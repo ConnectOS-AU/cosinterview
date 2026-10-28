@@ -159,7 +159,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
             onChange={(e) => setSendEmail(e.target.checked)}
             className="h-4 w-4 rounded border-neutral-300"
           />
-          Email the invites from my Outlook
+          Email the invites to candidates
           {!canEmail && <span className="text-xs">(not set up yet - you&apos;ll get links to copy)</span>}
         </label>
         <div className="flex items-center gap-3">

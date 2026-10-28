@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
-import { graphConfigured } from "@/lib/graph";
+import { mailConfigured } from "@/lib/mail";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { getJob, listActiveJobs, listApplications } from "@/lib/staff/jobadder";
 import { invitesForJob } from "@/lib/staff/repo";
@@ -104,7 +104,7 @@ async function ChooseCandidates({ jobId }: { jobId: string }) {
       </div>
       <CandidatePicker
         jobId={job.jobId}
-        canEmail={graphConfigured()}
+        canEmail={mailConfigured()}
         candidates={applications.map((a) => {
           const status = existing.get(a.candidateId);
           return {

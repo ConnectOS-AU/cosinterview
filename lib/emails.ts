@@ -1,9 +1,12 @@
 import "server-only";
 import { DateTime } from "luxon";
 
-// Emails a candidate receives from their recruiter's mailbox, and the body of
-// the recruiter's Outlook entry. Plain, inline-styled HTML so it renders the
-// same in Outlook and Gmail.
+// Emails a candidate receives in their recruiter's name (sent by lib/mail.ts),
+// and the body of the recruiter's Outlook entry. Plain, inline-styled HTML so it
+// renders the same in Outlook and Gmail, plus a plain-text version that also
+// goes into the candidate's JobAdder note.
+
+export type EmailContent = { subject: string; bodyHtml: string; text: string };
 
 const escape = (value: string) =>
   value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -19,7 +22,12 @@ function signature({ recruiterName, recruiterTitle }: Sender): string {
   return `<p>Kind regards,<br>${escape(recruiterName)}${recruiterTitle ? `<br><span style="color:#52606d">${escape(recruiterTitle)}, ConnectOS</span>` : "<br>ConnectOS"}</p>`;
 }
 
-const firstName = (name: string) => escape(name.split(" ")[0]);
+const first = (name: string) => name.split(" ")[0];
+const firstName = (name: string) => escape(first(name));
+
+function textSignature({ recruiterName, recruiterTitle }: Sender): string {
+  return `Kind regards,\n${recruiterName}\n${recruiterTitle ? `${recruiterTitle}, ConnectOS` : "ConnectOS"}`;
+}
 
 // "Thursday 29 October, 1:00 pm – 1:30 pm (Sydney time)"
 export function formatSlot(start: string, end: string, zone: string): string {
@@ -40,8 +48,9 @@ export function inviteEmail(
     // The recruiter's own words, shown above the standard text.
     message?: string | null;
   },
-): { subject: string; bodyHtml: string } {
+): EmailContent {
   const role = input.jobTitle ? ` for the ${escape(input.jobTitle)} role` : "";
+  const plainRole = input.jobTitle ? ` for the ${input.jobTitle} role` : "";
   const expires = DateTime.fromISO(input.expiresAt).setZone("Asia/Manila").toFormat("cccc d LLLL");
   const subject = input.reschedule
     ? "Please choose a new time for your ConnectOS interview"
@@ -49,6 +58,9 @@ export function inviteEmail(
   const intro = input.reschedule
     ? `Our interview${role} needs a new time. Please choose another time that suits you.`
     : `Thanks for your application${role}. I'd love to meet you in a ${input.durationMins}-minute video interview.`;
+  const plainIntro = input.reschedule
+    ? `Our interview${plainRole} needs a new time. Please choose another time that suits you.`
+    : `Thanks for your application${plainRole}. I'd love to meet you in a ${input.durationMins}-minute video interview.`;
   const message = input.message?.trim()
     ? `<p style="white-space:pre-wrap;border-left:3px solid #12798f;padding-left:12px">${escape(input.message.trim())}</p>`
     : "";
@@ -63,7 +75,18 @@ export function inviteEmail(
   <p ${MUTED}>This link is personal to you and works until ${escape(expires)}. If the button doesn't work, copy this address into your browser:<br><span style="word-break:break-all">${escape(input.link)}</span></p>
   ${signature(input)}
 </div>`.trim();
-  return { subject, bodyHtml };
+  const text = [
+    `Hi ${first(input.candidateName)},`,
+    input.message?.trim() || null,
+    plainIntro,
+    "Pick a time from my calendar here (the interview runs in your web browser - nothing to install):",
+    input.link,
+    `This link is personal to you and works until ${expires}.`,
+    textSignature(input),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return { subject, bodyHtml, text };
 }
 
 // Sent when the candidate books. The .ics file goes with it as an attachment.
@@ -77,8 +100,9 @@ export function bookingConfirmationEmail(
     googleUrl: string;
     outlookUrl: string;
   },
-): { subject: string; bodyHtml: string } {
+): EmailContent {
   const role = input.jobTitle ? ` for the ${escape(input.jobTitle)} role` : "";
+  const plainRole = input.jobTitle ? ` for the ${input.jobTitle} role` : "";
   const subject = `Confirmed: your ConnectOS interview${input.jobTitle ? ` – ${input.jobTitle}` : ""}`;
   const bodyHtml = `
 <div ${WRAP}>
@@ -92,13 +116,21 @@ export function bookingConfirmationEmail(
   <p ${MUTED}>The room opens 15 minutes before the start time. Use a computer or phone with a camera and microphone - there's nothing to install. Need to check your booking? <a href="${escape(input.bookingPage)}">View it here</a>.</p>
   ${signature(input)}
 </div>`.trim();
-  return { subject, bodyHtml };
+  const text = [
+    `Hi ${first(input.candidateName)},`,
+    `Thanks for booking - your video interview${plainRole} is confirmed.`,
+    input.when,
+    `Join the interview: ${input.roomLink}\nThe room opens 15 minutes before the start time. Use a computer or phone with a camera and microphone - there's nothing to install.`,
+    "Add it to your calendar with the attached connectos-interview.ics file.",
+    textSignature(input),
+  ].join("\n\n");
+  return { subject, bodyHtml, text };
 }
 
 // Sent when the recruiter cancels a booked interview.
 export function cancellationEmail(
   input: Sender & { candidateName: string; jobTitle: string | null; when: string },
-): { subject: string; bodyHtml: string } {
+): EmailContent {
   const role = input.jobTitle ? ` for the ${escape(input.jobTitle)} role` : "";
   const subject = `Cancelled: your ConnectOS interview${input.jobTitle ? ` – ${input.jobTitle}` : ""}`;
   const bodyHtml = `
@@ -107,7 +139,12 @@ export function cancellationEmail(
   <p>I'm sorry - our video interview${role} on <strong>${escape(input.when)}</strong> has been cancelled. Please remove it from your calendar. I'll be in touch if anything changes.</p>
   ${signature(input)}
 </div>`.trim();
-  return { subject, bodyHtml };
+  const text = [
+    `Hi ${first(input.candidateName)},`,
+    `I'm sorry - our video interview${input.jobTitle ? ` for the ${input.jobTitle} role` : ""} on ${input.when} has been cancelled. Please remove it from your calendar. I'll be in touch if anything changes.`,
+    textSignature(input),
+  ].join("\n\n");
+  return { subject, bodyHtml, text };
 }
 
 // Body of the recruiter's own Outlook entry.

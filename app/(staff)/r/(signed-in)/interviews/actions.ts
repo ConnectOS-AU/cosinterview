@@ -3,9 +3,10 @@
 import { DateTime } from "luxon";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
-import { cancellationEmail, formatSlot, inviteEmail } from "@/lib/emails";
-import { deleteInterviewEvent, graphConfigured, sendMailAs } from "@/lib/graph";
+import { cancellationEmail, type EmailContent, formatSlot, inviteEmail } from "@/lib/emails";
+import { deleteInterviewEvent, graphConfigured } from "@/lib/graph";
 import { siteUrl } from "@/lib/invite";
+import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
 import { findInviteById, releaseBooking } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { INTERVIEW_LENGTHS } from "@/lib/staff/options";
@@ -35,36 +36,37 @@ function linkFor(recruiter: Pick<RecruiterProfile, "slug">, token: string): stri
   return `${siteUrl()}/c/${recruiter.slug}/${token}`;
 }
 
-async function emailInvite(
-  recruiter: RecruiterProfile,
-  to: { name: string; email: string },
-  details: {
-    jobTitle: string | null;
-    durationMins: number;
-    link: string;
-    expiresAt: string;
-    reschedule?: boolean;
-    message?: string | null;
-  },
-): Promise<string | undefined> {
+type Recruiter = Pick<RecruiterProfile, "displayName" | "calendarEmail">;
+
+// Sends one email to a candidate in the recruiter's name. Returns the text for
+// the JobAdder note, or null if it couldn't be sent.
+async function sendToCandidate(recruiter: Recruiter, to: { name: string; email: string }, content: EmailContent): Promise<string | null> {
+  const mail = { to, recruiter: { name: recruiter.displayName, email: recruiter.calendarEmail }, subject: content.subject, html: content.bodyHtml, text: content.text };
   try {
-    const mail = inviteEmail({
-      candidateName: to.name,
-      recruiterName: recruiter.displayName,
-      recruiterTitle: recruiter.title,
-      ...details,
-    });
-    await sendMailAs(recruiter.calendarEmail, { to, ...mail });
-    return undefined;
+    await sendCandidateMail(mail);
+    return mailForNote(mail);
   } catch (err) {
-    console.error("[invite email]", to.email, err);
-    return "Email couldn't be sent - copy the link instead.";
+    console.error("[candidate email]", to.email, err);
+    return null;
   }
 }
 
+// A JobAdder note: what happened, then the email the candidate got (if any).
+const note = (summary: string, email: string | null) => (email ? `${summary}\n\n${email}` : summary);
+
+const EMAIL_FAILED = "Email couldn't be sent - copy the link instead.";
+
+function inviteContent(
+  recruiter: RecruiterProfile,
+  to: { name: string },
+  details: { jobTitle: string | null; durationMins: number; link: string; expiresAt: string; reschedule?: boolean; message?: string | null },
+): EmailContent {
+  return inviteEmail({ candidateName: to.name, recruiterName: recruiter.displayName, recruiterTitle: recruiter.title, ...details });
+}
+
 // Creates (or reuses) the open interview for this job and invites the chosen
-// candidates. Emails go from the recruiter's own mailbox when Graph is set up;
-// either way the links are returned so they can be copied.
+// candidates. Emails go out through SendGrid in the recruiter's name when it's
+// set up; either way the links are returned so they can be copied.
 export async function createInvitations(input: {
   jobId: string;
   durationMins: number;
@@ -114,35 +116,37 @@ export async function createInvitations(input: {
 
   const interview = await openInterviewFor(recruiter, job, input.durationMins, staff.userId);
   const created = await createInvites(recruiter, interview, invites);
-  const canEmail = input.sendEmail && graphConfigured();
+  const canEmail = input.sendEmail && mailConfigured();
   const message = input.message?.trim().slice(0, MAX_MESSAGE) || null;
 
   const sent: SentInvite[] = [];
+  const notes: { candidateId: string; text: string }[] = [];
   for (const invite of invites) {
     if (!created.has(invite.candidateId)) {
       skipped.push(invite.name);
       continue;
     }
     const link = linkFor(recruiter, tokens.get(invite.candidateId)!);
-    const error = canEmail
-      ? await emailInvite(recruiter, invite, { jobTitle: job.title, durationMins: input.durationMins, link, expiresAt, message })
-      : undefined;
-    sent.push({ name: invite.name, email: invite.email, link, emailed: canEmail && !error, error });
+    const email = canEmail
+      ? await sendToCandidate(recruiter, invite, inviteContent(recruiter, invite, { jobTitle: job.title, durationMins: input.durationMins, link, expiresAt, message }))
+      : null;
+    const failed = canEmail && !email;
+    sent.push({ name: invite.name, email: invite.email, link, emailed: Boolean(email), error: failed ? EMAIL_FAILED : undefined });
+    notes.push({
+      candidateId: invite.candidateId,
+      text: note(
+        [
+          `Interview invite ${email ? "emailed" : "link created"} via COSInterview for ${job.title}: ${input.durationMins}-minute video interview with ${recruiter.displayName}.`,
+          `Waiting for the candidate to choose a time. The link works until ${inviteExpiry(expiresAt)}.`,
+        ].join("\n"),
+        email,
+      ),
+    });
   }
 
   // JobAdder: the invite went out (or the link was handed over to send).
-  const sentIds = invites.filter((i) => created.has(i.candidateId));
   after(async () => {
-    for (const invite of sentIds) {
-      const emailed = sent.find((x) => x.email === invite.email)?.emailed;
-      await logToJobAdder(
-        invite.candidateId,
-        [
-          `Interview invite ${emailed ? "emailed" : "link created"} via COSInterview for ${job.title}: ${input.durationMins}-minute video interview with ${recruiter.displayName}.`,
-          `Waiting for the candidate to choose a time. The link works until ${inviteExpiry(expiresAt)}.`,
-        ].join("\n"),
-      );
-    }
+    for (const n of notes) await logToJobAdder(n.candidateId, n.text);
   });
 
   revalidatePath("/r");
@@ -170,6 +174,8 @@ async function removeOutlookEntry(invite: InviteRecord): Promise<void> {
 const bookedWhen = (invite: InviteRecord, zone: string) =>
   invite.slotStart && invite.slotEnd ? formatSlot(invite.slotStart, invite.slotEnd, zone) : null;
 
+const candidateOf = (invite: InviteRecord) => ({ name: invite.candidateName, email: invite.candidateEmail });
+
 export type LinkResult = { ok: true; link: string; emailed: boolean; error?: string } | { ok: false; error: string };
 
 // New link for someone who hasn't booked yet (lost or expired email). The old
@@ -181,17 +187,23 @@ export async function resendInvite(bookingId: string, sendEmail: boolean): Promi
   const expiresAt = DateTime.utc().plus({ days: INVITE_DAYS }).endOf("day").toISO()!;
   await replaceInviteToken(bookingId, hash, expiresAt);
   const link = linkFor(recruiter, token);
-  const canEmail = sendEmail && graphConfigured();
-  const error = canEmail
-    ? await emailInvite(
+  const canEmail = sendEmail && mailConfigured();
+  const email = canEmail
+    ? await sendToCandidate(
         recruiter,
-        { name: invite.candidateName, email: invite.candidateEmail },
-        { jobTitle: invite.interview.jobTitle, durationMins: invite.interview.durationMins, link, expiresAt },
+        candidateOf(invite),
+        inviteContent(recruiter, candidateOf(invite), { jobTitle: invite.interview.jobTitle, durationMins: invite.interview.durationMins, link, expiresAt }),
       )
-    : undefined;
+    : null;
+  after(() =>
+    logToJobAdder(
+      invite.jobadderCandidateId,
+      note(`New interview invite link ${email ? "emailed" : "created"} via COSInterview (works until ${inviteExpiry(expiresAt)}); the old link no longer works.`, email),
+    ),
+  );
   // No revalidatePath: the row would move sections and the new link would vanish
   // before it's copied. The list refreshes when the recruiter closes it.
-  return { ok: true, link, emailed: canEmail && !error, error };
+  return { ok: true, link, emailed: Boolean(email), error: canEmail && !email ? EMAIL_FAILED : undefined };
 }
 
 // Frees the booked time and sends the candidate a fresh link to pick another.
@@ -204,23 +216,32 @@ export async function rescheduleBooking(bookingId: string, sendEmail: boolean): 
   const expiresAt = DateTime.utc().plus({ days: INVITE_DAYS }).endOf("day").toISO()!;
   await releaseBooking(bookingId, { status: "invited", tokenHash: hash, expiresAt });
   const link = linkFor(recruiter, token);
-  const canEmail = sendEmail && graphConfigured();
-  const error = canEmail
-    ? await emailInvite(
+  const canEmail = sendEmail && mailConfigured();
+  const email = canEmail
+    ? await sendToCandidate(
         recruiter,
-        { name: invite.candidateName, email: invite.candidateEmail },
-        { jobTitle: invite.interview.jobTitle, durationMins: invite.interview.durationMins, link, expiresAt, reschedule: true },
+        candidateOf(invite),
+        inviteContent(recruiter, candidateOf(invite), {
+          jobTitle: invite.interview.jobTitle,
+          durationMins: invite.interview.durationMins,
+          link,
+          expiresAt,
+          reschedule: true,
+        }),
       )
-    : undefined;
+    : null;
   after(() =>
     logToJobAdder(
       invite.jobadderCandidateId,
-      `Interview${was ? ` on ${was}` : ""} moved via COSInterview: the candidate has a new link to choose another time (works until ${inviteExpiry(expiresAt)}).`,
+      note(
+        `Interview${was ? ` on ${was}` : ""} moved via COSInterview: the candidate has a new link to choose another time (works until ${inviteExpiry(expiresAt)}).`,
+        email,
+      ),
     ),
   );
   // No revalidatePath: the row would move sections and the new link would vanish
   // before it's copied. The list refreshes when the recruiter closes it.
-  return { ok: true, link, emailed: canEmail && !error, error };
+  return { ok: true, link, emailed: Boolean(email), error: canEmail && !email ? EMAIL_FAILED : undefined };
 }
 
 export async function cancelBooking(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -235,24 +256,22 @@ export async function cancelBooking(bookingId: string): Promise<{ ok: true } | {
   await releaseBooking(bookingId, { status: "cancelled" });
 
   // A booked candidate is told; someone who hadn't booked just finds the link no longer works.
-  if (candidateWhen && graphConfigured()) {
-    try {
-      await sendMailAs(invite.recruiter.calendarEmail, {
-        to: { name: invite.candidateName, email: invite.candidateEmail },
-        ...cancellationEmail({
-          candidateName: invite.candidateName,
-          recruiterName: invite.recruiter.displayName,
-          recruiterTitle: invite.recruiter.title,
-          jobTitle: invite.interview.jobTitle,
-          when: candidateWhen,
-        }),
-      });
-    } catch (err) {
-      console.error("[cancel] Cancellation email failed", bookingId, err);
-    }
-  }
+  const email =
+    candidateWhen && mailConfigured()
+      ? await sendToCandidate(
+          invite.recruiter,
+          candidateOf(invite),
+          cancellationEmail({
+            candidateName: invite.candidateName,
+            recruiterName: invite.recruiter.displayName,
+            recruiterTitle: invite.recruiter.title,
+            jobTitle: invite.interview.jobTitle,
+            when: candidateWhen,
+          }),
+        )
+      : null;
   after(() =>
-    logToJobAdder(invite.jobadderCandidateId, `Interview${was ? ` on ${was}` : " invite"} cancelled via COSInterview.`),
+    logToJobAdder(invite.jobadderCandidateId, note(`Interview${was ? ` on ${was}` : " invite"} cancelled via COSInterview.`, email)),
   );
   revalidatePath("/r");
   return { ok: true };

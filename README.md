@@ -18,9 +18,9 @@ candidates see it as "ConnectOS Interviews".
    candidate gets a signed, expiring link.
 2. The candidate books a slot from the recruiter's Outlook free/busy time (Microsoft Graph).
    Booking creates a Daily room named after the booking, an entry in the recruiter's Outlook
-   calendar linking to their interview screen, and a confirmation email to the candidate (from
-   the recruiter's mailbox) with the time in their zone, the join link and a calendar file
-   (.ics attachment plus Google / Outlook.com links). JobAdder gets a note with the chosen time.
+   calendar linking to their interview screen, and a confirmation email to the candidate (SendGrid,
+   in the recruiter's name) with the time in their zone, the join link and a calendar file
+   (.ics attachment plus Google / Outlook.com links). JobAdder gets a note with the chosen time and the confirmation email.
 3. Recruiter and candidate join from their own pages. Daily records each participant's
    audio as a separate track (raw-tracks, into our S3 bucket). The recruiter types
    timestamped notes during the call.
@@ -53,7 +53,7 @@ Embedded in COSHub's content pane at `https://interviews.connectos.co/r`, styled
 | Route | What it does |
 |---|---|
 | `/r` | The signed-in recruiter's interviews: upcoming, awaiting booking, past 30 days. Row actions: **New link** (lost or expired invite), **Reschedule** (frees the time, removes the Outlook entry, new link), **Cancel** (a booked candidate is emailed). Each step adds a JobAdder note. |
-| `/r/interviews/new` | Pick a JobAdder job (from the synced `ja_jobs`, open and on hold), tick candidates with active applications (`ja_applications`), choose the length and add an optional personal message for the emails. Creates the interview and one invite per candidate, emails each from the recruiter's Outlook (Graph `Mail.Send`) and shows the links to copy, and adds a JobAdder note per candidate. Links are only shown once - only their hash is stored. |
+| `/r/interviews/new` | Pick a JobAdder job (from the synced `ja_jobs`, open and on hold), tick candidates with active applications (`ja_applications`), choose the length and add an optional personal message for the emails. Creates the interview and one invite per candidate, emails each through SendGrid in the recruiter's name (replies go to the recruiter) and shows the links to copy, and adds a JobAdder note per candidate with the email's full text. Links are only shown once - only their hash is stored. |
 | `/r/profile` | What candidates see: name, title, photo (Supabase Storage `recruitment-public`, 2 MB), welcome message, bio, time zone. |
 | `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) beside the video. End interview / Mark as no-show. Once completed: summary, scores, notes and the English transcript, and **Add summary to JobAdder**. |
 | `/r/admin` | Admins only (`is_admin` on their recruiter profile). Upcoming interviews for every recruiter, the recruiter list (add, deactivate, make admin) and **Work as**: every recruiter screen then runs as that recruiter (their interviews, new interviews, their profile) with a banner and **Back to my account**. Joining an interview while working as someone uses the admin's own name. |
@@ -114,8 +114,10 @@ Accounts and access (IT / admin):
   `DAILY_WEBHOOK_SECRET` as `hmac` (command in `app/api/daily/webhook/route.ts`).
 - [ ] **S3**: private bucket, lifecycle rule deleting raw tracks after 30-90 days,
   read-only key for the worker.
-- [ ] **Microsoft Graph**: app registration with application permissions `Calendars.ReadWrite` and
-  `Mail.Send`, admin consent, and an **application access policy** limiting it to recruiter mailboxes.
+- [ ] **Microsoft Graph**: app registration with the application permission `Calendars.ReadWrite`,
+  admin consent, and an **application access policy** limiting it to recruiter mailboxes.
+- [ ] **SendGrid**: COSHub's API key, and a verified sender for `SENDGRID_FROM_EMAIL` (or domain
+  authentication for connectos.co). Send one test invite to yourself first.
 - [ ] **Groq** and **Anthropic** API keys.
 - [ ] **Worker schedule**: `POST /api/worker/run` every 15 minutes with `WORKER_SECRET`.
 - [ ] **COSHub**: merge the cosops iframe change, then add a menu item embedding

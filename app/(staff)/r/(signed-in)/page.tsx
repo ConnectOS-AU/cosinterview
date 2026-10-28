@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { requireRecruiter } from "@/lib/staff/auth";
-import { graphConfigured } from "@/lib/graph";
+import { mailConfigured } from "@/lib/mail";
 import { listBookingsForRecruiter, type BookingSummary } from "@/lib/staff/repo";
 import { STATUS_BADGE } from "@/lib/staff/status";
 import { BookingActions } from "./interviews/booking-actions";
@@ -20,7 +20,7 @@ export default async function InterviewsPage() {
   const upcoming = bookings.filter(isOpen);
   const awaiting = bookings.filter((b) => b.status === "invited");
   const past = bookings.filter((b) => !isOpen(b) && b.status !== "invited").reverse();
-  const canEmail = graphConfigured();
+  const canEmail = mailConfigured();
 
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-8">

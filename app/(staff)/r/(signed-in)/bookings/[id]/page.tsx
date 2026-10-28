@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
-import { graphConfigured } from "@/lib/graph";
+import { mailConfigured } from "@/lib/mail";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { listNotes } from "@/lib/staff/repo";
@@ -43,7 +43,7 @@ export default async function BookingPage({ params }: Props) {
           </p>
         </div>
         <div className="flex items-start gap-4">
-          <BookingActions bookingId={invite.bookingId} status={invite.status} canEmail={graphConfigured()} />
+          <BookingActions bookingId={invite.bookingId} status={invite.status} canEmail={mailConfigured()} />
           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badge.className}`}>{badge.label}</span>
         </div>
       </div>
