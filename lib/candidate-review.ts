@@ -223,7 +223,9 @@ export function reviewNoteText(invite: InviteRecord, review: CandidateReview, so
   ].join(", ");
   return [
     `Candidate overview before interview - COSInterview (AI-assisted, advisory only)${invite.interview.jobTitle ? ` for ${invite.interview.jobTitle}` : ""}.`,
-    `Pre-interview opinion: ${SUITABILITY_LABEL[review.suitability]}, ${review.likelihoodPercent}% likelihood of being the successful candidate.`,
+    review.likelihoodPercent === null
+      ? "Pre-interview opinion: not enough information to judge - no resume or notes about the candidate yet. Ask them for a resume before the interview."
+      : `Pre-interview opinion: ${SUITABILITY_LABEL[review.suitability]}, ${review.likelihoodPercent}% likelihood of being the successful candidate.`,
     review.opinion,
     `Summary\n${review.summary}`,
     `Positives\n${list(review.positives)}`,
@@ -293,19 +295,42 @@ const DEMO_REVIEW: CandidateReview = {
   linkedinUrl: "https://www.linkedin.com/in/maria-santos-example",
 };
 
+// Someone the team knows nothing about yet: no resume, no notes.
+const DEMO_UNKNOWN: CandidateReview = {
+  suitability: "insufficient",
+  likelihoodPercent: null,
+  opinion:
+    "There's nothing to judge this candidate on yet: no resume on JobAdder, no notes and no application answers. Ask them for a resume before the interview, and use the questions below to cover the basics.",
+  summary: "No resume, JobAdder notes or application answers were found, so the candidate's experience against the role is unknown.",
+  positives: [],
+  gaps: [{ point: "Experience unknown", detail: "Nothing in the sources shows their background against the role's requirements." }],
+  discrepancies: [],
+  questions: [
+    { question: "Can you walk me through your current or most recent role, and what a typical day looks like?", purpose: "Establishes their background.", topic: "gap" },
+    { question: "How many years have you worked in customer support, and in which channels - phone, chat or email?", purpose: "The role's core requirement.", topic: "gap" },
+    { question: "Which helpdesk or ticketing systems have you used?", purpose: "The job asks for helpdesk logging.", topic: "gap" },
+    { question: "What's your notice period, and when could you start?", purpose: "Availability.", topic: "verify" },
+    { question: "What salary are you looking for in your next role?", purpose: "Salary expectations.", topic: "verify" },
+    { question: "What made you interested in this role?", purpose: "Motivation.", topic: "motivation" },
+  ],
+  linkedinUrl: null,
+};
+
 function runDemoReview(invite: InviteRecord): "done" {
   if (demoReviews.get(invite.bookingId)?.status === "done") return "done";
+  const known = invite.jobadderCandidateId === "5001";
+  const review = known ? DEMO_REVIEW : DEMO_UNKNOWN;
   const sources: ReviewSources = {
-    resumeFile: "Maria Santos CV.pdf",
-    resumeProblem: null,
-    jobadderNotes: 3,
+    resumeFile: known ? "Maria Santos CV.pdf" : null,
+    resumeProblem: known ? null : "No resume on JobAdder.",
+    jobadderNotes: known ? 3 : 0,
     jobDescription: invite.interview.jobadderJobId === "1001",
-    linkedinUrl: DEMO_REVIEW.linkedinUrl,
+    linkedinUrl: review.linkedinUrl,
   };
   const now = new Date().toISOString();
   demoReviews.set(invite.bookingId, {
     status: "done",
-    review: DEMO_REVIEW,
+    review,
     sources,
     model: "demo",
     error: null,
@@ -313,6 +338,6 @@ function runDemoReview(invite: InviteRecord): "done" {
     updatedAt: now,
     jobAdderNotedAt: now,
   });
-  console.info("[jobadder note - demo]", invite.jobadderCandidateId, reviewNoteText(invite, DEMO_REVIEW, sources));
+  console.info("[jobadder note - demo]", invite.jobadderCandidateId, reviewNoteText(invite, review, sources));
   return "done";
 }

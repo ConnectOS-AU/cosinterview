@@ -8,6 +8,7 @@ export const SUITABILITY_LABEL: Record<CandidateReview["suitability"], string> =
   good: "Good fit",
   possible: "Possible fit",
   unlikely: "Unlikely fit",
+  insufficient: "Not enough information yet",
 };
 
 export const TOPIC_LABEL: Record<ReviewQuestion["topic"], string> = {

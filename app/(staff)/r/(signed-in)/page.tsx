@@ -134,8 +134,10 @@ function Section({
 // The pre-interview candidate overview, with its likelihood once written.
 function OverviewLink({ bookingId, review }: { bookingId: string; review?: { status: string; likelihood: number | null } }) {
   const tag =
-    review?.status === "done" && review.likelihood !== null
-      ? `${review.likelihood}%`
+    review?.status === "done"
+      ? review.likelihood === null
+        ? "no info"
+        : `${review.likelihood}%`
       : review?.status === "pending" || review?.status === "running"
         ? "writing…"
         : null;
