@@ -129,6 +129,8 @@ export function inviteFor(
     status: "invited",
     candidateName: c.name,
     candidateEmail: c.email,
+    candidateWhatsapp: null,
+    candidateViber: null,
     candidateTimezone: null,
     jobadderCandidateId: c.candidateId,
     jobadderApplicationId: c.applicationId,

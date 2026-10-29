@@ -8,6 +8,7 @@ import { formatSlot, guestInviteEmail } from "@/lib/emails";
 import { addGuest, guestDisplayName, listGuests, markGuestInvited, newGuestLink, removeGuest, setClientResumeId, type Guest } from "@/lib/guests";
 import { listResumeVersions } from "@/lib/resumes";
 import { sendCandidateMail } from "@/lib/mail";
+import { runDebrief } from "@/lib/candidate-debrief";
 import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { createOwnerToken } from "@/lib/daily";
 import { demoMode } from "@/lib/demo";
@@ -86,6 +87,8 @@ export async function recordingStarted(bookingId: string, dailyRecordingId: stri
 export async function finishInterview(bookingId: string, outcome: "completed" | "no_show"): Promise<void> {
   const { invite } = await ownBooking(bookingId);
   await setBookingStatus(bookingId, outcome);
+  // The local demo has no recordings: write its sample post-interview overview now.
+  if (demoMode() && outcome === "completed") await runDebrief(invite);
   // Who attended and everyone's notes (recruiter and client attendees) go to
   // the candidate's JobAdder record, each with the stage and date in front.
   after(async () => {
@@ -261,4 +264,20 @@ export async function noteAttendee(bookingId: string, displayName: string): Prom
   const { invite } = await ownBooking(bookingId);
   const { name, role } = parseCallName(displayName.trim());
   await recordAttendee(bookingId, role ? { name, kind: role } : { name: name || invite.candidateName, kind: "candidate" });
+}
+
+// The candidate overview after the interview: write it again from the
+// transcript (takes a minute or two).
+export async function regenerateDebrief(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { invite } = await ownBooking(bookingId);
+    if (invite.status !== "completed") return { ok: false, error: "The interview hasn't finished." };
+    const result = await runDebrief(invite);
+    revalidatePath(`/r/bookings/${bookingId}/overview`);
+    if (result === "skipped") return { ok: false, error: "There's no transcript yet, or the AI isn't set up on this server." };
+    if (result === "failed") return { ok: false, error: "It couldn't be written - the details are on the page." };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
+  }
 }

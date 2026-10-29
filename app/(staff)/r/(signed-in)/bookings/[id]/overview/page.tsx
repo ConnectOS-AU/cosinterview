@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
+import { getDebrief, likelihoodTimeline, NEXT_STEP_LABEL, OUTCOME_LABEL, type DebriefState, type TimelinePoint } from "@/lib/candidate-debrief";
 import { getCandidateReview, type ReviewState } from "@/lib/candidate-review";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { SUITABILITY_LABEL, TOPIC_LABEL } from "@/lib/review-labels";
+import { stageLabel } from "@/lib/stages";
+import type { CandidateDebrief } from "@/lib/worker/debrief";
 import type { CandidateReview } from "@/lib/worker/review";
 import { ReviewControls } from "./review-controls";
 
@@ -25,7 +28,11 @@ export default async function CandidateOverviewPage({ params }: Props) {
   const { recruiter } = await requireRecruiter();
   const invite = await findInviteById(id);
   if (!invite || invite.recruiter.id !== recruiter.id) notFound();
-  const state = await getCandidateReview(invite.bookingId);
+  const [state, after, timeline] = await Promise.all([
+    getCandidateReview(invite.bookingId),
+    getDebrief(invite.bookingId),
+    likelihoodTimeline(invite),
+  ]);
   const zone = recruiter.timezone;
   const when = invite.slotStart ? DateTime.fromISO(invite.slotStart, { zone }).toFormat("cccc d LLLL, h:mm a") : "Not booked yet";
   const booked = invite.status !== "invited" && invite.status !== "cancelled";
@@ -39,7 +46,7 @@ export default async function CandidateOverviewPage({ params }: Props) {
           </Link>
           <h1 className="mt-1 text-2xl font-semibold text-neutral-900">Candidate overview: {invite.candidateName}</h1>
           <p className="mt-0.5 text-sm text-neutral-500">
-            {invite.interview.jobTitle ?? "Interview"}
+            {stageLabel(invite.interview.stage)} · {invite.interview.jobTitle ?? "Interview"}
             {invite.interview.clientName && ` · ${invite.interview.clientName}`} · {when}
           </p>
         </div>
@@ -52,6 +59,16 @@ export default async function CandidateOverviewPage({ params }: Props) {
           </Link>
         )}
       </div>
+
+      {timeline.length > 1 && <Timeline points={timeline} current={invite.bookingId} />}
+
+      {invite.status === "completed" && (
+        <AfterInterview state={after} bookingId={invite.bookingId} before={state.review?.likelihoodPercent ?? null} zone={zone} />
+      )}
+
+      {invite.status === "completed" && state.status === "done" && (
+        <h2 className="pt-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">Before the interview</h2>
+      )}
 
       {!booked ? (
         <Notice>The overview is written once the candidate books a time.</Notice>
@@ -206,5 +223,172 @@ function Points({ items, empty }: { items: { point: string; detail: string }[]; 
         </li>
       ))}
     </ul>
+  );
+}
+
+// --- After the interview ----------------------------------------------------------
+
+const OUTCOME_STYLE: Record<CandidateDebrief["answers"][number]["outcome"], string> = {
+  resolved: "bg-emerald-50 text-emerald-800",
+  partly: "bg-amber-50 text-amber-800",
+  concern: "bg-red-50 text-red-800",
+  not_asked: "bg-neutral-100 text-neutral-600",
+};
+
+const NEXT_STEP_STYLE: Record<CandidateDebrief["nextStep"], string> = {
+  progress: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  progress_with_checks: "bg-sky-50 text-sky-800 ring-sky-200",
+  hold: "bg-amber-50 text-amber-800 ring-amber-200",
+  do_not_progress: "bg-red-50 text-red-800 ring-red-200",
+};
+
+function AfterInterview({ state, bookingId, before, zone }: { state: DebriefState; bookingId: string; before: number | null; zone: string }) {
+  if (state.status !== "done" || !state.debrief) {
+    return (
+      <Notice>
+        {state.status === "running" ? (
+          <p>The overview after the interview is being written from the transcript.</p>
+        ) : state.status === "failed" ? (
+          <>
+            <p>The overview after the interview couldn&apos;t be written.</p>
+            {state.error && <p className="text-xs text-neutral-500">{state.error}</p>}
+          </>
+        ) : (
+          <p>The overview after the interview is written once the transcript is ready (usually within 15 minutes of the call ending).</p>
+        )}
+        <ReviewControls bookingId={bookingId} label={state.status === "failed" ? "Try again" : "Write it now"} waiting={state.status === "running"} after />
+      </Notice>
+    );
+  }
+  const d = state.debrief;
+  const moved = before !== null && d.likelihoodPercent !== null ? d.likelihoodPercent - before : null;
+  return (
+    <>
+      <section className="rounded-lg border border-neutral-200 bg-white p-6">
+        <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">After the interview</p>
+        <div className="mt-3 flex flex-wrap items-center gap-6">
+          <div>
+            <p className="text-5xl font-semibold tabular-nums text-neutral-900">{d.likelihoodPercent === null ? "?" : `${d.likelihoodPercent}%`}</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              likelihood now
+              {moved !== null && (
+                <span className={`ml-1.5 font-semibold ${moved > 0 ? "text-emerald-700" : moved < 0 ? "text-red-700" : "text-neutral-500"}`}>
+                  {moved > 0 ? "▲" : moved < 0 ? "▼" : "="} {Math.abs(moved)} from {before}%
+                </span>
+              )}
+            </p>
+          </div>
+          <span className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ring-1 ${BAND[d.suitability]}`}>{SUITABILITY_LABEL[d.suitability]}</span>
+          <span className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ring-1 ${NEXT_STEP_STYLE[d.nextStep]}`}>{NEXT_STEP_LABEL[d.nextStep]}</span>
+        </div>
+        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-neutral-800">{d.opinion}</p>
+        <p className="mt-2 max-w-3xl text-sm text-neutral-600">
+          <span className="font-medium text-neutral-800">Next step:</span> {d.nextStepReason}
+        </p>
+      </section>
+
+      <Card title="Recommendations" tone="text-sky-800">
+        {d.recommendations.length === 0 ? (
+          <p className="text-sm text-neutral-400">None.</p>
+        ) : (
+          <ul className="space-y-2.5 text-sm">
+            {d.recommendations.map((r, i) => (
+              <li key={i}>
+                <p className="font-medium text-neutral-900">{r.recommendation}</p>
+                <p className="text-neutral-600">{r.detail}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Card title="Addressed in the interview" tone="text-emerald-800">
+          <Points items={d.addressed} empty="Nothing from before the interview was settled." />
+        </Card>
+        <Card title="Concerns" tone="text-red-800">
+          {d.concerns.length === 0 ? (
+            <p className="text-sm text-neutral-400">No remaining concerns.</p>
+          ) : (
+            <ul className="space-y-2.5 text-sm">
+              {d.concerns.map((c, i) => (
+                <li key={i}>
+                  <p className="font-medium text-neutral-900">
+                    {c.point}
+                    {c.isNew && <span className="ml-2 rounded bg-red-50 px-1.5 py-px text-xs font-medium text-red-700">New</span>}
+                  </p>
+                  <p className="text-neutral-600">{c.detail}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      {d.answers.length > 0 && (
+        <Card title="Answers to the suggested questions">
+          <p className="-mt-2 mb-3 text-xs text-neutral-500">From the transcript - times are positions in the recording.</p>
+          <ol className="space-y-3">
+            {d.answers.map((a, i) => (
+              <li key={i} className="flex gap-3 text-sm">
+                <span className="w-5 flex-shrink-0 text-right font-semibold tabular-nums text-neutral-400">{i + 1}.</span>
+                <div>
+                  <p className="text-neutral-900">{a.question}</p>
+                  <p className="mt-1 text-neutral-700">
+                    <span className={`mr-1.5 rounded px-1.5 py-0.5 text-xs font-medium ${OUTCOME_STYLE[a.outcome]}`}>{OUTCOME_LABEL[a.outcome]}</span>
+                    {a.answer}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Card>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-white px-5 py-3">
+        <p className="text-xs text-neutral-500">
+          Written by AI from the transcript and everyone&apos;s notes - advisory only.
+          {state.updatedAt && ` Written ${DateTime.fromISO(state.updatedAt, { zone }).toFormat("d LLL, h:mm a")}`}
+          {state.jobAdderNotedAt ? " · added to JobAdder notes" : " · not added to JobAdder"}
+        </p>
+        <ReviewControls bookingId={bookingId} label="Regenerate" waiting={false} after />
+      </div>
+    </>
+  );
+}
+
+// The likelihood through every interview round for this candidate and job:
+// before (light) and after (dark) each interview.
+function Timeline({ points, current }: { points: TimelinePoint[]; current: string }) {
+  return (
+    <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <h2 className="text-sm font-semibold text-neutral-900">Likelihood over time</h2>
+      <p className="mt-0.5 text-xs text-neutral-500">Before and after each interview for this job.</p>
+      <ol className="mt-4 flex items-end gap-3 overflow-x-auto pb-1">
+        {points.map((p, i) => {
+          const prev = points[i - 1]?.percent;
+          const moved = p.percent !== null && prev !== undefined && prev !== null ? p.percent - prev : null;
+          const here = p.bookingId === current;
+          return (
+            <li key={`${p.bookingId}-${p.when}`} className="flex w-24 flex-shrink-0 flex-col items-center gap-1.5">
+              <span className="text-sm font-semibold tabular-nums text-neutral-900">
+                {p.percent === null ? "?" : `${p.percent}%`}
+                {moved !== null && moved !== 0 && (
+                  <span className={`ml-1 text-xs ${moved > 0 ? "text-emerald-700" : "text-red-700"}`}>{moved > 0 ? "▲" : "▼"}</span>
+                )}
+              </span>
+              <div className="flex h-28 w-8 items-end rounded bg-neutral-100">
+                <div className={`w-full rounded ${p.when === "after" ? "bg-sky-600" : "bg-sky-300"}`} style={{ height: `${p.percent ?? 0}%` }} aria-hidden />
+              </div>
+              <span className={`text-center text-xs leading-tight ${here ? "font-semibold text-neutral-900" : "text-neutral-500"}`}>
+                {p.when === "before" ? "Before" : "After"}
+                <br />
+                {stageLabel(p.stage)}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }

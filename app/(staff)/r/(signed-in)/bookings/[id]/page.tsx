@@ -61,6 +61,13 @@ export default async function BookingPage({ params }: Props) {
             <span className="font-medium text-neutral-700">{stageLabel(invite.interview.stage)}</span> · {invite.interview.jobTitle ?? "Interview"}
             {invite.interview.clientName && ` · ${invite.interview.clientName}`} · {when}
           </p>
+          {(invite.candidateWhatsapp || invite.candidateViber) && (
+            <p className="mt-0.5 text-xs text-neutral-500">
+              {invite.candidateWhatsapp && <>WhatsApp {invite.candidateWhatsapp}</>}
+              {invite.candidateWhatsapp && invite.candidateViber && " · "}
+              {invite.candidateViber && <>Viber {invite.candidateViber}</>}
+            </p>
+          )}
         </div>
         <div className="flex items-start gap-2">
           {invite.status !== "invited" && invite.status !== "cancelled" && (
