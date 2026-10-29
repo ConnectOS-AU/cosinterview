@@ -84,3 +84,18 @@ export async function jobAdderGet<T>(path: string): Promise<T> {
   if (!res.ok) throw new Error(`JobAdder ${path} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
   return (await res.json()) as T;
 }
+
+// Downloads a file from JobAdder (e.g. a candidate's resume). Throws on any
+// non-200; anything over maxBytes is refused rather than read into memory.
+export async function jobAdderGetFile(path: string, maxBytes: number): Promise<{ bytes: Buffer; contentType: string }> {
+  const res = await fetch(`${API}${path}`, {
+    headers: { Authorization: `Bearer ${await accessToken()}` },
+    cache: "no-store",
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`JobAdder ${path} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  if (Number(res.headers.get("content-length") ?? 0) > maxBytes) throw new Error(`JobAdder ${path}: file too large`);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  if (bytes.length > maxBytes) throw new Error(`JobAdder ${path}: file too large`);
+  return { bytes, contentType: (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase() };
+}

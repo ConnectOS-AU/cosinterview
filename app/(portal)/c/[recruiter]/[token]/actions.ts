@@ -21,6 +21,7 @@ import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
 import { allowRequest } from "@/lib/rate-limit";
 import { claimSlot, saveGraphEvent, saveInviteLink } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
+import { runCandidateReview } from "@/lib/candidate-review";
 import { logToJobAdder } from "@/lib/staff/jobadder-api";
 import type { InviteRecord } from "@/lib/types";
 
@@ -171,6 +172,10 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
     `Length: ${interview.durationMins} minutes. Recruiter: ${recruiter.displayName}.`,
   ].join("\n");
   await logToJobAdder(booked.jobadderCandidateId, emailNote ? `${summary}\n\n${emailNote}` : summary);
+
+  // 4. The candidate overview for the recruiter (resume and notes against the
+  // job description), also added to JobAdder. Last, as it takes a minute.
+  await runCandidateReview(booked);
 }
 
 export type RoomAccess =

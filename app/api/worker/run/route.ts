@@ -1,11 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { processDueReviews } from "@/lib/candidate-review";
 import { demoMode } from "@/lib/demo";
 import { sendDueReminders } from "@/lib/reminders";
 import { processDueRecordings } from "@/lib/worker/process";
 
-// Sends candidates' interview reminders (24 hours and 2 hours before) and
-// retries recordings that failed or got stuck. Call it every 15 minutes from
+// Sends candidates' interview reminders (24 hours and 2 hours before), writes
+// candidate overviews that are missing or failed, and retries recordings that
+// failed or got stuck. Call it every 15 minutes from
 // ONE server's scheduler (cron, pm2, Task Scheduler):
 //   curl -X POST -H "Authorization: Bearer $WORKER_SECRET" https://interviews.connectos.co/api/worker/run
 
@@ -31,6 +33,13 @@ export async function POST(request: Request) {
     console.error("[worker] Reminders failed", err);
     reminders = "failed";
   }
+  let reviews: number | string = 0;
+  try {
+    reviews = await processDueReviews();
+  } catch (err) {
+    console.error("[worker] Candidate reviews failed", err);
+    reviews = "failed";
+  }
   const processed = demoMode() ? 0 : await processDueRecordings();
-  return NextResponse.json({ reminders, processed });
+  return NextResponse.json({ reminders, reviews, processed });
 }

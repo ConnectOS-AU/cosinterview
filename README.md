@@ -23,6 +23,7 @@ candidates see it as "ConnectOS Interviews".
    (.ics attachment plus Google / Outlook.com links). JobAdder gets a note with the chosen time and the confirmation email.
    Candidates can book the same day, from an hour ahead. They're emailed reminders 24 hours and 2 hours
    before (skipped if they booked less than an hour before a reminder was due), each noted in JobAdder.
+   Booking also starts the **candidate overview** (below).
 3. Recruiter and candidate join from their own pages. Daily records each participant's
    audio as a separate track (raw-tracks, into our S3 bucket). The recruiter types
    timestamped notes during the call.
@@ -59,7 +60,8 @@ Embedded in COSHub's content pane at `https://interviews.connectos.co/r`, styled
 | `/r` | The signed-in recruiter's interviews: upcoming, awaiting booking, past 30 days. Row actions: **New link** (lost or expired invite), **Reschedule** (frees the time, removes the Outlook entry, new link), **Cancel** (a booked candidate is emailed). Each step adds a JobAdder note. |
 | `/r/interviews/new` | Pick a JobAdder job (from the synced `ja_jobs`, open and on hold), tick candidates with active applications (`ja_applications`), choose the length and add an optional personal message for the emails. Creates the interview and one invite per candidate, emails each through SendGrid in the recruiter's name (replies go to the recruiter) and shows the links to copy, and adds a JobAdder note per candidate with the email's full text. Links are only shown once - only their hash is stored. |
 | `/r/profile` | What candidates see: name, title, photo (Supabase Storage `recruitment-public`, 2 MB), welcome message, bio, time zone. |
-| `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) under the video and the job description from JobAdder to the right (scrolls, zoom A−/A+, remembered per computer). End interview / Mark as no-show. Once completed: summary, scores, notes and the English transcript, and **Add summary to JobAdder**. |
+| `/r/bookings/<id>/overview` | **Candidate overview**, linked from each booked row on `/r` (with its likelihood %). Written by Claude after booking from the candidate's resume (JobAdder attachments), the team's JobAdder notes (`ja_notes`) and application answers (LinkedIn link, salary) against the job description: an opinion and % likelihood of being the successful candidate at the top, then summary, positives, gaps, discrepancies and questions to ask. Also added to the candidate's JobAdder notes. **Regenerate** writes it again. Advisory only; protected attributes are ignored. LinkedIn profiles are never read (sign-in wall, not allowed) - the link is shown for the interviewer to check. |
+| `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) under the video and to the right the job description from JobAdder (scrolls, zoom A−/A+, remembered per computer) with the overview's **questions to ask** under it (tick each as asked). **Move to second screen** opens both in their own window (`/r/companion/<id>`) - placed on the other monitor when the browser allows window management, otherwise drag it across - and the interview screen takes them back when it's closed. End interview / Mark as no-show. Once completed: summary, scores, notes and the English transcript, and **Add summary to JobAdder**. |
 | `/r/admin` | Admins only (`is_admin` on their recruiter profile). Upcoming interviews for every recruiter, the recruiter list (add, deactivate, make admin) and **Work as**: every recruiter screen then runs as that recruiter (their interviews, new interviews, their profile) with a banner and **Back to my account**. Joining an interview while working as someone uses the admin's own name. |
 | `/r/admin/lobby` | Admins only. The candidate lobby screen, every panel with a visual / HTML editor: the waiting card (job description link wording, tips), an Interview tips panel, and the ConnectOS panel (headline, content, optional YouTube/Vimeo video, button). Live preview; saved HTML is cleaned (no scripts, styles or embeds) before candidates see it. |
 | `/r/login` | Microsoft sign-in (Supabase Auth, Azure provider - same as COSHub). Inside COSHub's frame it opens in a pop-up, because Microsoft's sign-in can't be framed. |
@@ -91,7 +93,8 @@ Runs inside the same Next.js server (no separate service):
    (the participant whose Daily `user_id` is `recruiter:<id>`) or candidate.
 5. Claude writes the summary and 1-5 scores from the transcript plus the recruiter's notes.
 6. `POST /api/worker/run` (Bearer `WORKER_SECRET`) retries failed or stuck recordings, up to 3
-   attempts, and sends candidates' 24-hour and 2-hour interview reminders. Schedule it every 15 minutes
+   attempts, sends candidates' 24-hour and 2-hour interview reminders, and writes candidate overviews
+   that are missing or failed (up to 3 attempts, a few per run). Schedule it every 15 minutes
    on **one** server - without it, no reminders go out.
 
 Reminder links: invite links are looked up by hash, so to put the join link in reminders the token is
@@ -153,6 +156,13 @@ Test before relying on it:
   activity notes (invite sent, booked, moved, cancelled) use the same endpoint and only log an error
   if it fails, so check one appears after the first real invite. Also confirm
   refreshing the shared `ja_token` doesn't upset the existing sync.
+- [ ] **Candidate overview resume** - the JobAdder attachment endpoints (`lib/review-inputs.ts`) couldn't be
+  checked against JobAdder's docs. After the first booking, open its overview: "What it was based on" should
+  name the resume file. If it says no resume, `pm2 logs cosinterview --lines 300 --nostream | grep review`
+  shows the attachment fields JobAdder returned. Needs `ANTHROPIC_API_KEY`; Word (.docx) and PDF resumes only.
+- [ ] **Second screen inside COSHub** (optional): for the window to open directly on the other monitor, the
+  COSHub iframe's `allow` list also needs `window-management`. Without it the window opens on the same
+  screen and the interviewer drags it across.
 - [ ] One end-to-end interview: invite email, booking, Outlook entry, lobby, recording, transcript,
   summary.
 
@@ -166,9 +176,10 @@ Next.js, Tailwind and Supabase, matching `connectos-bi-chat`. The brand theme
 Tables are prefixed `cos_recruitment_` in the ConnectOS Supabase project. Migrations live in
 `db/migrations/`, applied in number order: `001` creates the schema, `002` adds foreign-key
 indexes, `003` hardening (grants, booking function, photo bucket, retention job), `004` the
-worker queue functions, `005` recruiter admins (with Simon as the first admin) and `006` reminders
-(booking time, encrypted link, sent flags) plus the settings table for the lobby screen. All six are
-applied to the ConnectOS Database project.
+worker queue functions, `005` recruiter admins (with Simon as the first admin), `006` reminders
+(booking time, encrypted link, sent flags) plus the settings table for the lobby screen, and `007`
+candidate overviews (one per booking, claimed by `cos_recruitment_claim_review`, deleted with the
+transcripts after 12 months).
 
 ## Local setup
 
