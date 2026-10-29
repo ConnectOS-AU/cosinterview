@@ -39,16 +39,21 @@ export function LobbyPanel({ content: c }: { content: WaitingRoomContent }) {
   );
 }
 
-export function LobbyTips({ tips }: { tips: string[] }) {
-  if (tips.length === 0) return null;
+// Tips beside the recruiter's photo while the candidate waits.
+export function LobbyTips({ html }: { html: string }) {
+  if (!html) return null;
   return (
-    <ul className="space-y-2 border-t border-brand-line pt-4 text-sm text-brand-text">
-      {tips.map((tip) => (
-        <li key={tip} className="flex gap-2">
-          <span aria-hidden className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-brand-gold" />
-          {tip}
-        </li>
-      ))}
-    </ul>
+    <div className="lobby-html lobby-tips border-t border-brand-line pt-4 text-sm" dangerouslySetInnerHTML={{ __html: html }} />
+  );
+}
+
+// Its own panel under the waiting card.
+export function InterviewTipsPanel({ title, html }: { title: string; html: string }) {
+  if (!html) return null;
+  return (
+    <section className="space-y-3 rounded-3xl border border-brand-line bg-brand-surface p-6 shadow-card animate-fade-up sm:p-8">
+      <h2 className="text-lg font-medium text-brand-ink">{title}</h2>
+      <div className="lobby-html lobby-tips text-sm" dangerouslySetInnerHTML={{ __html: html }} />
+    </section>
   );
 }

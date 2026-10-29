@@ -1,7 +1,7 @@
 "use client";
 
 import type { DailyCall } from "@daily-co/daily-js";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { InterviewNote } from "@/lib/staff/repo";
 import { finishInterview, joinAsRecruiter, recordingStarted, removeNote, saveNote } from "./actions";
@@ -15,12 +15,15 @@ type Props = {
   candidateName: string;
   canJoin: boolean;
   initialNotes: InterviewNote[];
+  // Right-hand column beside the video (the job description).
+  aside?: ReactNode;
 };
 
 // The recruiter's side of the interview: Daily video (joined as owner), a banner
 // to admit the candidate from the lobby, automatic recording once the candidate
-// is in, and timestamped notes alongside.
-export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes }: Props) {
+// is in, timestamped notes under the video, and `aside` (the job description)
+// to the right.
+export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes, aside }: Props) {
   const router = useRouter();
   const frameRef = useRef<HTMLDivElement>(null);
   const callRef = useRef<DailyCall | null>(null);
@@ -218,9 +221,11 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
             </div>
           )}
         </div>
+
+        <NotesPanel bookingId={bookingId} initialNotes={initialNotes} clockStart={clockStart} />
       </div>
 
-      <NotesPanel bookingId={bookingId} initialNotes={initialNotes} clockStart={clockStart} />
+      {aside && <div className="space-y-5 lg:sticky lg:top-4 lg:self-start">{aside}</div>}
     </div>
   );
 }
@@ -303,12 +308,12 @@ function NotesPanel({
   }
 
   return (
-    <section className="flex max-h-[38rem] flex-col rounded-lg border border-neutral-200 bg-white">
+    <section className="flex max-h-[30rem] flex-col rounded-lg border border-neutral-200 bg-white">
       <div className="border-b border-neutral-200 px-4 py-3">
         <h2 className="text-sm font-semibold text-neutral-900">Notes</h2>
         <p className="text-xs text-neutral-500">Only visible to ConnectOS staff. Timed against the recording.</p>
       </div>
-      <ol ref={listRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
+      <ol ref={listRef} className="min-h-[6rem] flex-1 space-y-2 overflow-y-auto px-4 py-3">
         {notes.length === 0 && <li className="text-sm text-neutral-400">No notes yet.</li>}
         {notes.map((n) => (
           <li key={n.id} className="group flex gap-3 text-sm">

@@ -73,3 +73,14 @@ export async function logToJobAdder(candidateId: string, text: string): Promise<
     console.error("[jobadder note]", candidateId, err);
   }
 }
+
+// Reads from JobAdder (same token as the notes). Throws on any non-200.
+export async function jobAdderGet<T>(path: string): Promise<T> {
+  const res = await fetch(`${API}${path}`, {
+    headers: { Authorization: `Bearer ${await accessToken()}`, Accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!res.ok) throw new Error(`JobAdder ${path} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+  return (await res.json()) as T;
+}

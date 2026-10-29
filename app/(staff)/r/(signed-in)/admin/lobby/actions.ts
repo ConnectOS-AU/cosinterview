@@ -2,14 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { defaultWaitingRoomContent, type WaitingRoomContent } from "@/content/waiting-room";
-import { cleanLobby, saveLobbyContent } from "@/lib/lobby";
+import { cleanLobby, cleanRichHtml, saveLobbyContent } from "@/lib/lobby";
 import { requireAdmin } from "@/lib/staff/auth";
 
 export type LobbyInput = {
   headline: string;
   bodyHtml: string;
   videoUrl: string;
-  tips: string;
+  tipsHtml: string;
+  interviewTipsTitle: string;
+  interviewTipsHtml: string;
+  jobLinkLabel: string;
   ctaLabel: string;
   ctaHref: string;
 };
@@ -17,13 +20,8 @@ export type LobbyInput = {
 export type SaveLobbyResult = { ok: true; content: WaitingRoomContent; warnings: string[] } | { ok: false; error: string };
 
 function toContent(input: LobbyInput): Partial<WaitingRoomContent> {
-  return {
-    headline: input.headline,
-    bodyHtml: input.bodyHtml,
-    videoUrl: input.videoUrl,
-    tips: input.tips.split("\n"),
-    cta: { label: input.ctaLabel, href: input.ctaHref },
-  };
+  const { ctaLabel, ctaHref, ...rest } = input;
+  return { ...rest, cta: { label: ctaLabel, href: ctaHref } };
 }
 
 // What the candidate would see, for the editor's live preview. Admin-only like
@@ -31,6 +29,12 @@ function toContent(input: LobbyInput): Partial<WaitingRoomContent> {
 export async function previewLobby(input: LobbyInput): Promise<WaitingRoomContent> {
   await requireAdmin();
   return cleanLobby(toContent(input));
+}
+
+// One panel's HTML, cleaned - for loading it into the visual editor.
+export async function cleanPanelHtml(html: string): Promise<string> {
+  await requireAdmin();
+  return cleanRichHtml(html);
 }
 
 export async function saveLobby(input: LobbyInput): Promise<SaveLobbyResult> {

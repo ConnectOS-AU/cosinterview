@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
+import { getJobDescription } from "@/lib/job-description";
 import { mailConfigured } from "@/lib/mail";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
@@ -10,6 +11,7 @@ import { getInterviewRecord } from "@/lib/staff/transcripts";
 import { BookingActions } from "../../interviews/booking-actions";
 import { InterviewRecordView } from "./interview-record";
 import { InterviewScreen } from "./interview-screen";
+import { JobDescriptionPane } from "./job-description-pane";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,11 @@ export default async function BookingPage({ params }: Props) {
   const invite = await findInviteById(id);
   if (!invite || invite.recruiter.id !== recruiter.id) notFound();
 
-  const notes = await listNotes(invite.bookingId);
+  const live = invite.status !== "completed";
+  const [notes, jobDescription] = await Promise.all([
+    listNotes(invite.bookingId),
+    live ? getJobDescription(invite.interview.jobadderJobId) : null,
+  ]);
   const zone = recruiter.timezone;
   const badge = STATUS_BADGE[invite.status];
   const when =
@@ -56,6 +62,7 @@ export default async function BookingPage({ params }: Props) {
           candidateName={invite.candidateName}
           canJoin={invite.status === "booked" || invite.status === "in_progress"}
           initialNotes={notes}
+          aside={<JobDescriptionPane jobTitle={invite.interview.jobTitle} html={jobDescription} />}
         />
       )}
     </main>
