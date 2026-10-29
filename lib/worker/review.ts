@@ -11,8 +11,10 @@ export type ReviewQuestion = { question: string; purpose: string; topic: "gap" |
 export type ReviewPoint = { point: string; detail: string };
 
 export type CandidateReview = {
-  suitability: "strong" | "good" | "possible" | "unlikely";
-  likelihoodPercent: number;
+  // "insufficient": nothing to judge yet (no resume, nothing in the notes) -
+  // no percentage, and the questions gather the basics instead.
+  suitability: "strong" | "good" | "possible" | "unlikely" | "insufficient";
+  likelihoodPercent: number | null;
   opinion: string;
   summary: string;
   positives: string[];
@@ -38,10 +40,10 @@ const SCHEMA = {
   additionalProperties: false,
   required: ["suitability", "likelihoodPercent", "opinion", "summary", "positives", "gaps", "discrepancies", "questions", "linkedinUrl"],
   properties: {
-    suitability: { type: "string", enum: ["strong", "good", "possible", "unlikely"] },
+    suitability: { type: "string", enum: ["strong", "good", "possible", "unlikely", "insufficient"] },
     likelihoodPercent: {
-      type: "integer",
-      description: "0-100: how likely this candidate is to be the successful hire for this role, judged before the interview.",
+      type: ["integer", "null"],
+      description: "0-100: how likely this candidate is to be the successful hire for this role, judged before the interview. null when suitability is insufficient.",
     },
     opinion: { type: "string", description: "2-3 sentences: your pre-interview view of their suitability and the main reason for the percentage." },
     summary: { type: "string", description: "4-6 sentences on the candidate's background measured against the role's requirements." },
@@ -74,6 +76,11 @@ Compare the candidate with the job description:
 - Discrepancies: things that don't add up - overlapping or inconsistent dates, unexplained gaps in employment of more than 3 months, job titles, employers or responsibilities that differ between the resume and the notes, salary expectations out of line with what the notes or role suggest, claims that contradict each other. Only list what you can point to in the sources; never invent one.
 - Questions: 6-10 open, neutral questions the interviewer can read aloud to the candidate, most important first, each aimed at a gap, a discrepancy, verifying a key claim, or motivation for this role. Address the candidate directly ("Can you walk me through...").
 - Likelihood: your calibrated estimate that this candidate will be the successful hire, from the evidence so far. Missing information means a moderate figure, not a low one. The suitability band should match the percentage (strong 75+, good 55-74, possible 35-54, unlikely under 35).
+
+When there is nothing to judge - no resume, and the notes and application answers say nothing about the candidate's experience or skills - don't guess:
+- Set suitability to "insufficient" and likelihoodPercent to null. The opinion says plainly that nothing is known about the candidate yet and suggests asking them for a resume before the interview.
+- Keep the summary short. Don't list every requirement of the role as a gap; one gap saying their experience against the role is unknown is enough. Positives and discrepancies stay empty.
+- Make the questions gather the basics against the role's key requirements: their current or most recent role, their experience with the main skills the job asks for (name them), notice period and availability, salary expectations, and why this role.
 
 Rules:
 - Base every point on the sources and say which one. If the resume is missing, say so in the summary and be more cautious.
@@ -138,7 +145,14 @@ export async function reviewCandidate(input: {
   if (response.stop_reason === "max_tokens") throw new Error("The review was cut off.");
   const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   const review = JSON.parse(text) as CandidateReview;
-  review.likelihoodPercent = Math.max(0, Math.min(100, Math.round(review.likelihoodPercent)));
+  // Nothing to go on: no percentage, whatever the model said.
+  const nothingKnown = !inputs.resume && inputs.notes.length === 0;
+  if (nothingKnown || review.suitability === "insufficient" || review.likelihoodPercent === null) {
+    review.suitability = "insufficient";
+    review.likelihoodPercent = null;
+  } else {
+    review.likelihoodPercent = Math.max(0, Math.min(100, Math.round(review.likelihoodPercent)));
+  }
   if (review.linkedinUrl && !/^https:\/\/([a-z]+\.)?linkedin\.com\//i.test(review.linkedinUrl)) review.linkedinUrl = null;
   return review;
 }

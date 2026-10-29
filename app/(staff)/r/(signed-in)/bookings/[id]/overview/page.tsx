@@ -17,8 +17,8 @@ const BAND: Record<CandidateReview["suitability"], string> = {
   good: "bg-sky-50 text-sky-800 ring-sky-200",
   possible: "bg-amber-50 text-amber-800 ring-amber-200",
   unlikely: "bg-red-50 text-red-800 ring-red-200",
+  insufficient: "bg-neutral-100 text-neutral-700 ring-neutral-300",
 };
-
 
 export default async function CandidateOverviewPage({ params }: Props) {
   const { id } = await params;
@@ -98,10 +98,17 @@ function Review({ state, review, bookingId, zone }: { state: ReviewState; review
       <section className="rounded-lg border border-neutral-200 bg-white p-6">
         <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Opinion before the interview</p>
         <div className="mt-3 flex flex-wrap items-center gap-6">
-          <div>
-            <p className="text-5xl font-semibold tabular-nums text-neutral-900">{review.likelihoodPercent}%</p>
-            <p className="mt-1 text-xs text-neutral-500">likelihood of being the successful candidate</p>
-          </div>
+          {review.likelihoodPercent === null ? (
+            <div>
+              <p className="text-3xl font-semibold text-neutral-400">No opinion yet</p>
+              <p className="mt-1 text-xs text-neutral-500">nothing to judge the candidate on - no resume or notes</p>
+            </div>
+          ) : (
+            <div>
+              <p className="text-5xl font-semibold tabular-nums text-neutral-900">{review.likelihoodPercent}%</p>
+              <p className="mt-1 text-xs text-neutral-500">likelihood of being the successful candidate</p>
+            </div>
+          )}
           <span className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ring-1 ${BAND[review.suitability]}`}>
             {SUITABILITY_LABEL[review.suitability]}
           </span>
