@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { joinWindow, loadInvite, publicRecruiter } from "@/lib/invite";
+import { getJobDescription } from "@/lib/job-description";
 import { getLobbyContent } from "@/lib/lobby";
 import { Notice, PortalShell } from "../../../portal-shell";
 import { InterviewRoom } from "./interview-room";
@@ -38,7 +39,7 @@ export default async function RoomPage({ params }: Props) {
     );
   }
 
-  const lobby = await getLobbyContent();
+  const [lobby, jobDescription] = await Promise.all([getLobbyContent(), getJobDescription(invite.interview.jobadderJobId)]);
   return (
     <InterviewRoom
       recruiterSlug={slug}
@@ -49,6 +50,7 @@ export default async function RoomPage({ params }: Props) {
       opensAt={window.opens.toISO()!}
       zone={invite.candidateTimezone ?? invite.recruiter.timezone}
       lobby={lobby}
+      jobHref={jobDescription ? `/c/${slug}/${token}/job` : null}
     />
   );
 }

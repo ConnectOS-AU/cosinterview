@@ -11,10 +11,12 @@ import { supabaseAdmin } from "./supabase/admin";
 const KEY = "lobby";
 const demoStore = globalThis as typeof globalThis & { __cosrecLobby?: WaitingRoomContent };
 
-export const LOBBY_LIMITS = { headline: 120, html: 20_000, tips: 8, tip: 200, ctaLabel: 60 };
+export const LOBBY_LIMITS = { headline: 120, title: 80, html: 20_000, ctaLabel: 60 };
 
-export function cleanLobbyHtml(html: string): string {
-  return sanitizeHtml(html.slice(0, LOBBY_LIMITS.html), {
+// Rich text that's safe to show candidates: the lobby panels, and job
+// descriptions from JobAdder. Unknown tags are dropped but their text is kept.
+export function cleanRichHtml(html: string, maxLength = LOBBY_LIMITS.html): string {
+  return sanitizeHtml(html.slice(0, maxLength), {
     allowedTags: ["p", "br", "strong", "b", "em", "i", "u", "h2", "h3", "h4", "ul", "ol", "li", "a", "blockquote", "hr", "img"],
     // target/rel are only ever the values set below.
     allowedAttributes: { a: ["href", "target", "rel"], img: ["src", "alt"] },
@@ -23,6 +25,11 @@ export function cleanLobbyHtml(html: string): string {
     allowProtocolRelative: false,
     transformTags: {
       a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }),
+      // Pasted or JobAdder HTML: keep its structure in the tags we allow.
+      div: "p",
+      h1: "h2",
+      h5: "h4",
+      h6: "h4",
     },
     // Images only from full https:// addresses (relative ones would point at this site).
     exclusiveFilter: (frame) => frame.tag === "img" && !/^https:\/\//i.test(frame.attribs.src ?? ""),
@@ -66,6 +73,17 @@ function cleanLink(href: string | null | undefined): string | null {
   }
 }
 
+// A saved (even empty) panel keeps what was saved; a missing one gets the default.
+const richOr = (html: unknown, fallback: string) => cleanRichHtml(typeof html === "string" ? html : fallback);
+
+// Lobby content saved before the tips became rich text had them as a list of lines.
+function tipsListHtml(input: unknown): string | undefined {
+  const tips = (input as { tips?: unknown } | null | undefined)?.tips;
+  if (!Array.isArray(tips)) return undefined;
+  const escape = (t: string) => t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
+  return `<ul>${tips.map((t) => `<li>${escape(String(t))}</li>`).join("")}</ul>`;
+}
+
 // Turns whatever came in (the editor, or the stored JSON) into safe content.
 export function cleanLobby(input: Partial<WaitingRoomContent> | null | undefined): WaitingRoomContent {
   const d = defaultWaitingRoomContent;
@@ -73,12 +91,12 @@ export function cleanLobby(input: Partial<WaitingRoomContent> | null | undefined
   const ctaLabel = input?.cta?.label?.trim().slice(0, LOBBY_LIMITS.ctaLabel);
   return {
     headline: input?.headline?.trim().slice(0, LOBBY_LIMITS.headline) || d.headline,
-    bodyHtml: typeof input?.bodyHtml === "string" ? cleanLobbyHtml(input.bodyHtml) : cleanLobbyHtml(d.bodyHtml),
+    bodyHtml: richOr(input?.bodyHtml, d.bodyHtml),
     videoUrl: videoEmbedUrl(input?.videoUrl),
-    tips: (Array.isArray(input?.tips) ? input.tips : d.tips)
-      .map((t) => String(t).trim().slice(0, LOBBY_LIMITS.tip))
-      .filter(Boolean)
-      .slice(0, LOBBY_LIMITS.tips),
+    tipsHtml: richOr(input?.tipsHtml ?? tipsListHtml(input), d.tipsHtml),
+    interviewTipsTitle: input?.interviewTipsTitle?.trim().slice(0, LOBBY_LIMITS.title) || d.interviewTipsTitle,
+    interviewTipsHtml: richOr(input?.interviewTipsHtml, d.interviewTipsHtml),
+    jobLinkLabel: input?.jobLinkLabel?.trim().slice(0, LOBBY_LIMITS.ctaLabel) || d.jobLinkLabel,
     cta: ctaHref && ctaLabel ? { label: ctaLabel, href: ctaHref } : null,
   };
 }

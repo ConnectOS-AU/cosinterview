@@ -6,7 +6,7 @@ import type { WaitingRoomContent } from "@/content/waiting-room";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
 import type { PublicRecruiter } from "@/lib/types";
 import { BrandLogo } from "@/app/brand-logo";
-import { LobbyPanel, LobbyTips } from "../../../../lobby-panel";
+import { InterviewTipsPanel, LobbyPanel, LobbyTips } from "../../../../lobby-panel";
 import { RecruiterAvatar } from "../../../portal-shell";
 import { getRoomAccess } from "../actions";
 
@@ -31,13 +31,15 @@ type Props = {
   opensAt: string;
   zone: string;
   lobby: WaitingRoomContent;
+  // The JobAdder job description page, when there is one.
+  jobHref: string | null;
 };
 
 // The candidate's side of the interview. They join the Daily room without a
 // meeting token, so Daily holds them in the lobby; we keep the video hidden and
 // show the ConnectOS waiting screen until the recruiter lets them in.
 export function InterviewRoom(props: Props) {
-  const { recruiterSlug, token, recruiter, candidateFirstName, startsAt, opensAt, zone, lobby } = props;
+  const { recruiterSlug, token, recruiter, candidateFirstName, startsAt, opensAt, zone, lobby, jobHref } = props;
   const frameRef = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>("checking");
 
@@ -123,7 +125,7 @@ export function InterviewRoom(props: Props) {
             <p className="hidden text-sm text-brand-faint sm:block">Where offshoring meets excellence</p>
           </header>
           <div className="mt-6 grid gap-6 lg:mt-10 lg:grid-cols-5">
-            <div className="lg:col-span-2">
+            <div className="space-y-6 lg:col-span-2">
               <StatusCard
                 phase={phase}
                 recruiter={recruiter}
@@ -132,8 +134,10 @@ export function InterviewRoom(props: Props) {
                 opensAt={opensAt}
                 zone={zone}
                 inviteHref={`/c/${recruiterSlug}/${token}`}
-                tips={lobby.tips}
+                tipsHtml={lobby.tipsHtml}
+                job={jobHref ? { href: jobHref, label: lobby.jobLinkLabel } : null}
               />
+              <InterviewTipsPanel title={lobby.interviewTipsTitle} html={lobby.interviewTipsHtml} />
             </div>
             <div className="lg:col-span-3">
               <LobbyPanel content={lobby} />
@@ -153,7 +157,8 @@ function StatusCard({
   opensAt,
   zone,
   inviteHref,
-  tips,
+  tipsHtml,
+  job,
 }: {
   phase: Phase;
   recruiter: PublicRecruiter;
@@ -162,7 +167,8 @@ function StatusCard({
   opensAt: string;
   zone: string;
   inviteHref: string;
-  tips: string[];
+  tipsHtml: string;
+  job: { href: string; label: string } | null;
 }) {
   const when = `${formatDay(startsAt, zone)} at ${formatTime(startsAt, zone)} (${formatZone(zone)} time)`;
   const copy: Record<Phase, { title: string; body: string; waiting?: boolean }> = {
@@ -238,7 +244,19 @@ function StatusCard({
           Try again
         </button>
       )}
-      {waiting && <LobbyTips tips={tips} />}
+      {job && phase !== "left" && (
+        // A new tab, so the candidate keeps their place in the waiting room.
+        <a
+          href={job.href}
+          target="_blank"
+          rel="noopener"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand-teal/40 bg-brand-teal-tint px-4 py-2.5 text-sm font-medium text-brand-teal transition hover:bg-brand-teal/10"
+        >
+          {job.label}
+          <span aria-hidden>↗</span>
+        </a>
+      )}
+      {waiting && <LobbyTips html={tipsHtml} />}
       {(phase === "denied" || phase === "closed") && (
         <a href={inviteHref} className="text-sm text-brand-teal underline">
           Back to your booking

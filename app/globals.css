@@ -109,3 +109,17 @@ body {
     @apply max-w-full rounded-2xl;
   }
 }
+
+/* Tips panels: smaller text, gold bullets like the rest of the lobby. */
+@layer components {
+  .lobby-tips {
+    @apply space-y-2;
+  }
+  .lobby-tips ul,
+  .lobby-tips ol {
+    @apply space-y-2;
+  }
+  .lobby-tips li::marker {
+    color: rgb(var(--c-gold));
+  }
+}
