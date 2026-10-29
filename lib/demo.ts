@@ -27,7 +27,14 @@ export function isDemoInvite(slug: string, token: string): boolean {
   return demoMode() && slug === "demo" && token === "demo";
 }
 
-type DemoInvite = InviteRecord & { tokenHash: string | null };
+type DemoInvite = InviteRecord & {
+  tokenHash: string | null;
+  // Reminder bookkeeping (columns on cos_recruitment_bookings in production).
+  bookedAt?: string | null;
+  linkToken?: string | null;
+  reminder24hSentAt?: string | null;
+  reminder2hSentAt?: string | null;
+};
 
 type DemoStore = {
   recruiter: RecruiterProfile;

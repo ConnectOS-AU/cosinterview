@@ -1,27 +1,24 @@
-// Marketing content shown to candidates while they wait in the lobby (and
-// before the room opens). Edit freely - this is the only file marketing needs
-// to touch. Placeholder copy is marked; replace it before go-live.
+// What candidates see while they wait in the lobby (and before the room opens).
+// Admins edit it at /r/admin/lobby; this is the starting point until they save,
+// and what "Reset to default" goes back to.
 
 export type WaitingRoomContent = {
   headline: string;
-  intro: string;
-  highlights: { title: string; body: string }[];
-  videoUrl: string | null; // optional YouTube/Vimeo embed URL, e.g. https://www.youtube.com/embed/<id>
+  // Rich text from the admin editor. Always sanitised before it's stored or shown.
+  bodyHtml: string;
+  videoUrl: string | null; // YouTube/Vimeo embed URL, e.g. https://www.youtube.com/embed/<id>
   tips: string[];
   cta: { label: string; href: string } | null;
 };
 
-export const waitingRoomContent: WaitingRoomContent = {
+export const defaultWaitingRoomContent: WaitingRoomContent = {
   headline: "Get to know ConnectOS",
-  // PLACEHOLDER - replace with approved marketing copy.
-  intro:
-    "ConnectOS connects talented Filipino professionals with growing businesses around the world. Here's a little about what it's like to work with us.",
-  highlights: [
-    // PLACEHOLDER - replace with approved highlights (culture, benefits, growth, awards).
-    { title: "Our people", body: "Add a short line about ConnectOS culture and team." },
-    { title: "Your growth", body: "Add a short line about training, career paths and support." },
-    { title: "Our clients", body: "Add a short line about the kinds of businesses our team works with." },
-  ],
+  bodyHtml: [
+    "<p>ConnectOS connects talented Filipino professionals with growing businesses around the world. Here's a little about what it's like to work with us.</p>",
+    "<h3>Our people</h3><p>Add a short line about ConnectOS culture and team.</p>",
+    "<h3>Your growth</h3><p>Add a short line about training, career paths and support.</p>",
+    "<h3>Our clients</h3><p>Add a short line about the kinds of businesses our team works with.</p>",
+  ].join(""),
   videoUrl: null,
   tips: [
     "Check your camera and microphone are allowed when your browser asks.",

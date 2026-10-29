@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { joinWindow, loadInvite, publicRecruiter } from "@/lib/invite";
+import { getLobbyContent } from "@/lib/lobby";
 import { Notice, PortalShell } from "../../../portal-shell";
 import { InterviewRoom } from "./interview-room";
 
@@ -37,6 +38,7 @@ export default async function RoomPage({ params }: Props) {
     );
   }
 
+  const lobby = await getLobbyContent();
   return (
     <InterviewRoom
       recruiterSlug={slug}
@@ -46,6 +48,7 @@ export default async function RoomPage({ params }: Props) {
       startsAt={invite.slotStart}
       opensAt={window.opens.toISO()!}
       zone={invite.candidateTimezone ?? invite.recruiter.timezone}
+      lobby={lobby}
     />
   );
 }

@@ -165,3 +165,47 @@ export function recruiterEventBody(input: {
   ${input.candidateWhen ? `<strong>Candidate's time:</strong> ${escape(input.candidateWhen)}` : ""}</p>
 </div>`.trim();
 }
+
+// Sent 24 hours and 2 hours before the interview. roomLink is null when the
+// candidate's link couldn't be recovered; they're pointed to their confirmation.
+export function reminderEmail(
+  input: Sender & {
+    kind: "24h" | "2h";
+    candidateName: string;
+    jobTitle: string | null;
+    when: string;
+    roomLink: string | null;
+  },
+): EmailContent {
+  const role = input.jobTitle ? ` for the ${escape(input.jobTitle)} role` : "";
+  const plainRole = input.jobTitle ? ` for the ${input.jobTitle} role` : "";
+  const soon = input.kind === "2h";
+  const subject = soon
+    ? `Starting soon: your ConnectOS interview${input.jobTitle ? ` – ${input.jobTitle}` : ""}`
+    : `Reminder: your ConnectOS interview${input.jobTitle ? ` – ${input.jobTitle}` : ""}`;
+  const lead = soon ? "Just a reminder that our video interview" : "Looking forward to meeting you! A reminder that our video interview";
+  const tail = soon ? "starts in about 2 hours." : "is coming up.";
+  const join = input.roomLink
+    ? `<p style="margin:28px 0"><a href="${escape(input.roomLink)}" ${BUTTON}>Join the interview</a></p>`
+    : `<p>Use the <strong>Join the interview</strong> button in your confirmation email.</p>`;
+  const bodyHtml = `
+<div ${WRAP}>
+  <p>Hi ${firstName(input.candidateName)},</p>
+  <p>${lead}${role} ${tail}</p>
+  <p style="font-size:17px;font-weight:bold;margin:20px 0">${escape(input.when)}</p>
+  ${join}
+  <p ${MUTED}>The room opens 15 minutes before the start time. Find a quiet spot with good internet, and use a computer or phone with a camera and microphone - there's nothing to install. If you can no longer make it, just reply to this email.</p>
+  ${signature(input)}
+</div>`.trim();
+  const text = [
+    `Hi ${first(input.candidateName)},`,
+    `${lead}${plainRole} ${tail}`,
+    input.when,
+    input.roomLink
+      ? `Join the interview: ${input.roomLink}\nThe room opens 15 minutes before the start time.`
+      : "Use the Join the interview button in your confirmation email. The room opens 15 minutes before the start time.",
+    "If you can no longer make it, just reply to this email.",
+    textSignature(input),
+  ].join("\n\n");
+  return { subject, bodyHtml, text };
+}

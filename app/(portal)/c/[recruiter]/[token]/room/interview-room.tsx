@@ -2,10 +2,11 @@
 
 import type { DailyCall } from "@daily-co/daily-js";
 import { useEffect, useRef, useState } from "react";
-import { waitingRoomContent } from "@/content/waiting-room";
+import type { WaitingRoomContent } from "@/content/waiting-room";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
 import type { PublicRecruiter } from "@/lib/types";
 import { BrandLogo } from "@/app/brand-logo";
+import { LobbyPanel, LobbyTips } from "../../../../lobby-panel";
 import { RecruiterAvatar } from "../../../portal-shell";
 import { getRoomAccess } from "../actions";
 
@@ -29,13 +30,14 @@ type Props = {
   startsAt: string;
   opensAt: string;
   zone: string;
+  lobby: WaitingRoomContent;
 };
 
 // The candidate's side of the interview. They join the Daily room without a
 // meeting token, so Daily holds them in the lobby; we keep the video hidden and
 // show the ConnectOS waiting screen until the recruiter lets them in.
 export function InterviewRoom(props: Props) {
-  const { recruiterSlug, token, recruiter, candidateFirstName, startsAt, opensAt, zone } = props;
+  const { recruiterSlug, token, recruiter, candidateFirstName, startsAt, opensAt, zone, lobby } = props;
   const frameRef = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>("checking");
 
@@ -130,10 +132,11 @@ export function InterviewRoom(props: Props) {
                 opensAt={opensAt}
                 zone={zone}
                 inviteHref={`/c/${recruiterSlug}/${token}`}
+                tips={lobby.tips}
               />
             </div>
             <div className="lg:col-span-3">
-              <MarketingPanel />
+              <LobbyPanel content={lobby} />
             </div>
           </div>
         </div>
@@ -150,6 +153,7 @@ function StatusCard({
   opensAt,
   zone,
   inviteHref,
+  tips,
 }: {
   phase: Phase;
   recruiter: PublicRecruiter;
@@ -158,6 +162,7 @@ function StatusCard({
   opensAt: string;
   zone: string;
   inviteHref: string;
+  tips: string[];
 }) {
   const when = `${formatDay(startsAt, zone)} at ${formatTime(startsAt, zone)} (${formatZone(zone)} time)`;
   const copy: Record<Phase, { title: string; body: string; waiting?: boolean }> = {
@@ -233,16 +238,7 @@ function StatusCard({
           Try again
         </button>
       )}
-      {waiting && (
-        <ul className="space-y-2 border-t border-brand-line pt-4 text-sm text-brand-text">
-          {waitingRoomContent.tips.map((tip) => (
-            <li key={tip} className="flex gap-2">
-              <span aria-hidden className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-brand-gold" />
-              {tip}
-            </li>
-          ))}
-        </ul>
-      )}
+      {waiting && <LobbyTips tips={tips} />}
       {(phase === "denied" || phase === "closed") && (
         <a href={inviteHref} className="text-sm text-brand-teal underline">
           Back to your booking
@@ -252,48 +248,3 @@ function StatusCard({
   );
 }
 
-function MarketingPanel() {
-  const c = waitingRoomContent;
-  return (
-    <section className="overflow-hidden rounded-3xl border border-brand-line bg-brand-surface shadow-card animate-fade-up">
-      <div className="relative h-40 sm:h-52">
-        {/* eslint-disable-next-line @next/next/no-img-element -- static asset in public/ */}
-        <img src="/login-photo.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0C4E60]/90 via-[#0C4E60]/40 to-[#0C4E60]/10" />
-        <h2 className="absolute inset-x-0 bottom-0 p-6 text-2xl font-semibold text-white sm:text-3xl">{c.headline}</h2>
-      </div>
-      <div className="space-y-6 p-6 sm:p-8">
-        <p className="text-base text-brand-text">{c.intro}</p>
-        {c.videoUrl && (
-          <div className="aspect-video overflow-hidden rounded-2xl bg-brand-sunken">
-            <iframe
-              src={c.videoUrl}
-              title="About ConnectOS"
-              className="h-full w-full"
-              allow="encrypted-media; picture-in-picture"
-              allowFullScreen
-            />
-          </div>
-        )}
-        <div className="grid gap-3 sm:grid-cols-3">
-          {c.highlights.map((h) => (
-            <div key={h.title} className="rounded-2xl border border-brand-line bg-brand-sunken p-4">
-              <p className="font-medium text-brand-ink">{h.title}</p>
-              <p className="mt-1 text-sm text-brand-muted">{h.body}</p>
-            </div>
-          ))}
-        </div>
-        {c.cta && (
-          <a
-            href={c.cta.href}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center rounded-xl border border-brand-gold/50 bg-brand-gold-tint px-4 py-2.5 text-sm font-medium text-brand-gold-dark transition hover:bg-brand-gold/20"
-          >
-            {c.cta.label}
-          </a>
-        )}
-      </div>
-    </section>
-  );
-}

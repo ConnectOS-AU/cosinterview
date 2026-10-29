@@ -19,7 +19,7 @@ import {
 } from "@/lib/invite";
 import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
 import { allowRequest } from "@/lib/rate-limit";
-import { claimSlot, saveGraphEvent } from "@/lib/repo";
+import { claimSlot, saveGraphEvent, saveInviteLink } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
 import { logToJobAdder } from "@/lib/staff/jobadder-api";
 import type { InviteRecord } from "@/lib/types";
@@ -102,6 +102,11 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
     await roomForBooking(booked);
   } catch (err) {
     console.error("[book] Daily room setup failed", booked.bookingId, err);
+  }
+  try {
+    await saveInviteLink(booked.bookingId, token);
+  } catch (err) {
+    console.error("[book] Saving the link for reminders failed", booked.bookingId, err);
   }
 
   if (graphConfigured()) {

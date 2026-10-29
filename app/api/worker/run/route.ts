@@ -1,9 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { demoMode } from "@/lib/demo";
+import { sendDueReminders } from "@/lib/reminders";
 import { processDueRecordings } from "@/lib/worker/process";
 
-// Retries recordings that failed or got stuck. Call it every 15 minutes from
-// the server's scheduler (cron, pm2, Task Scheduler):
+// Sends candidates' interview reminders (24 hours and 2 hours before) and
+// retries recordings that failed or got stuck. Call it every 15 minutes from
+// ONE server's scheduler (cron, pm2, Task Scheduler):
 //   curl -X POST -H "Authorization: Bearer $WORKER_SECRET" https://interviews.connectos.co/api/worker/run
 
 export const runtime = "nodejs";
@@ -19,6 +22,15 @@ function authorised(header: string | null): boolean {
 
 export async function POST(request: Request) {
   if (!authorised(request.headers.get("authorization"))) return new NextResponse("Unauthorized", { status: 401 });
-  const processed = await processDueRecordings();
-  return NextResponse.json({ processed });
+  // Reminders first: they're quick and time-sensitive, and a recording that
+  // takes a while to process shouldn't hold them up.
+  let reminders: number | string = 0;
+  try {
+    reminders = await sendDueReminders();
+  } catch (err) {
+    console.error("[worker] Reminders failed", err);
+    reminders = "failed";
+  }
+  const processed = demoMode() ? 0 : await processDueRecordings();
+  return NextResponse.json({ reminders, processed });
 }
