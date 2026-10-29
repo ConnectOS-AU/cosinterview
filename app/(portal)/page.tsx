@@ -1,4 +1,4 @@
-import { BrandLogo } from "./brand-logo";
+import { BrandLogo } from "@/app/brand-logo";
 
 // Placeholder home page. Candidates always arrive on their own invite link
 // (/c/<recruiter>/<token>), so the bare domain only needs to say where they are.
