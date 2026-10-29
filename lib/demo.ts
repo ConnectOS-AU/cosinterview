@@ -72,6 +72,7 @@ function seed(): DemoStore {
     clientName: "Sample Client",
     durationMins: 30,
     status: "open",
+    stage: "screening",
     createdAt: DateTime.utc().toISO()!,
   };
   return {
@@ -144,6 +145,7 @@ export function inviteFor(
       clientName: interview.clientName,
       durationMins: interview.durationMins,
       status: interview.status,
+      stage: interview.stage,
     },
     recruiter: {
       id: recruiter.id,

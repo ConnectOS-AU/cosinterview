@@ -1,6 +1,7 @@
 import "server-only";
 import { DateTime } from "luxon";
 import { demoId, demoInviteById, demoInvites, demoMode, demoRecruiters, demoStore, inviteFor, updateDemoInvite } from "../demo";
+import type { Stage } from "../stages";
 import { supabaseAdmin } from "../supabase/admin";
 import type {
   BookingStatus,
@@ -213,6 +214,7 @@ export async function listBookingsForRecruiter(recruiterId: string): Promise<Boo
         candidateEmail: d.candidateEmail,
         jobTitle: d.interview.jobTitle,
         clientName: d.interview.clientName,
+        stage: d.interview.stage,
         slotStart: d.slotStart,
         slotEnd: d.slotEnd,
         inviteExpiresAt: d.inviteExpiresAt,
@@ -224,7 +226,7 @@ export async function listBookingsForRecruiter(recruiterId: string): Promise<Boo
   const { data, error } = await supabaseAdmin()
     .from("cos_recruitment_bookings")
     .select(
-      "id, interview_id, status, candidate_name, candidate_email, slot_start, slot_end, invite_expires_at, interview:cos_recruitment_interviews!inner(recruiter_id, job_title, client_name)",
+      "id, interview_id, status, candidate_name, candidate_email, slot_start, slot_end, invite_expires_at, interview:cos_recruitment_interviews!inner(recruiter_id, job_title, client_name, stage)",
     )
     .eq("interview.recruiter_id", recruiterId)
     .or(`created_at.gte.${since},slot_start.gte.${since}`)
@@ -232,7 +234,7 @@ export async function listBookingsForRecruiter(recruiterId: string): Promise<Boo
     .limit(300);
   if (error) throw new Error(`Booking list failed: ${error.message}`);
   return (data ?? []).map((row) => {
-    const interview = row.interview as unknown as { job_title: string | null; client_name: string | null };
+    const interview = row.interview as unknown as { job_title: string | null; client_name: string | null; stage: Stage };
     return {
       bookingId: row.id,
       interviewId: row.interview_id,
@@ -241,6 +243,7 @@ export async function listBookingsForRecruiter(recruiterId: string): Promise<Boo
       candidateEmail: row.candidate_email,
       jobTitle: interview.job_title,
       clientName: interview.client_name,
+      stage: interview.stage,
       slotStart: row.slot_start,
       slotEnd: row.slot_end,
       inviteExpiresAt: row.invite_expires_at,
@@ -264,6 +267,7 @@ export async function listUpcomingBookings(limit = 200): Promise<UpcomingBooking
         candidateEmail: d.candidateEmail,
         jobTitle: d.interview.jobTitle,
         clientName: d.interview.clientName,
+        stage: d.interview.stage,
         slotStart: d.slotStart,
         slotEnd: d.slotEnd,
         inviteExpiresAt: d.inviteExpiresAt,
@@ -275,7 +279,7 @@ export async function listUpcomingBookings(limit = 200): Promise<UpcomingBooking
   const { data, error } = await supabaseAdmin()
     .from("cos_recruitment_bookings")
     .select(
-      "id, interview_id, status, candidate_name, candidate_email, slot_start, slot_end, invite_expires_at, interview:cos_recruitment_interviews!inner(recruiter_id, job_title, client_name, recruiter:cos_recruitment_recruiters!inner(display_name))",
+      "id, interview_id, status, candidate_name, candidate_email, slot_start, slot_end, invite_expires_at, interview:cos_recruitment_interviews!inner(recruiter_id, job_title, client_name, stage, recruiter:cos_recruitment_recruiters!inner(display_name))",
     )
     .in("status", ["booked", "in_progress"])
     .gte("slot_start", from)
@@ -287,6 +291,7 @@ export async function listUpcomingBookings(limit = 200): Promise<UpcomingBooking
       recruiter_id: string;
       job_title: string | null;
       client_name: string | null;
+      stage: Stage;
       recruiter: { display_name: string };
     };
     return {
@@ -297,6 +302,7 @@ export async function listUpcomingBookings(limit = 200): Promise<UpcomingBooking
       candidateEmail: row.candidate_email,
       jobTitle: interview.job_title,
       clientName: interview.client_name,
+      stage: interview.stage,
       slotStart: row.slot_start,
       slotEnd: row.slot_end,
       inviteExpiresAt: row.invite_expires_at,
@@ -334,11 +340,17 @@ export async function openInterviewFor(
   job: { jobId: string; title: string; companyName: string | null },
   durationMins: number,
   createdBy: string,
+  stage: Stage,
 ): Promise<InterviewRound> {
   if (demoMode()) {
     const store = demoStore();
     const existing = store.interviews.find(
-      (i) => i.recruiterId === recruiter.id && i.jobadderJobId === job.jobId && i.durationMins === durationMins && i.status === "open",
+      (i) =>
+        i.recruiterId === recruiter.id &&
+        i.jobadderJobId === job.jobId &&
+        i.durationMins === durationMins &&
+        i.stage === stage &&
+        i.status === "open",
     );
     if (existing) return existing;
     const created: InterviewRound = {
@@ -349,19 +361,21 @@ export async function openInterviewFor(
       clientName: job.companyName,
       durationMins,
       status: "open",
+      stage,
       createdAt: new Date().toISOString(),
     };
     store.interviews.push(created);
     return created;
   }
   const db = supabaseAdmin();
-  const columns = "id, recruiter_id, jobadder_job_id, job_title, client_name, duration_mins, status, created_at";
+  const columns = "id, recruiter_id, jobadder_job_id, job_title, client_name, duration_mins, status, stage, created_at";
   const found = await db
     .from("cos_recruitment_interviews")
     .select(columns)
     .eq("recruiter_id", recruiter.id)
     .eq("jobadder_job_id", job.jobId)
     .eq("duration_mins", durationMins)
+    .eq("stage", stage)
     .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(1)
@@ -378,6 +392,7 @@ export async function openInterviewFor(
           job_title: job.title,
           client_name: job.companyName,
           duration_mins: durationMins,
+          stage,
           created_by: createdBy,
         })
         .select(columns)
@@ -392,29 +407,37 @@ export async function openInterviewFor(
     clientName: row.client_name,
     durationMins: row.duration_mins,
     status: row.status,
+    stage: row.stage,
     createdAt: row.created_at,
   };
 }
 
-// The recruiter's existing invites for a JobAdder job, by JobAdder candidate
-// id, so the picker can show who's already been invited (cancelled ones can be
-// invited again).
-export async function invitesForJob(recruiterId: string, jobId: string): Promise<Map<string, BookingStatus>> {
+// Every candidate's interviews for a JobAdder job, at each stage, by any
+// recruiter (cancelled ones left out, so they can be invited again). The
+// picker uses it to show who's already invited to a stage and which stages
+// they've completed.
+export type CandidateStage = { stage: Stage; status: BookingStatus };
+
+export async function stagesForJob(jobId: string): Promise<Map<string, CandidateStage[]>> {
+  const out = new Map<string, CandidateStage[]>();
+  const add = (candidateId: string, entry: CandidateStage) => out.set(candidateId, [...(out.get(candidateId) ?? []), entry]);
   if (demoMode()) {
-    return new Map(
-      demoInvites()
-        .filter((i) => i.recruiter.id === recruiterId && i.interview.jobadderJobId === jobId && i.status !== "cancelled")
-        .map((i) => [i.jobadderCandidateId, i.status]),
-    );
+    for (const i of demoInvites()) {
+      if (i.interview.jobadderJobId === jobId && i.status !== "cancelled") add(i.jobadderCandidateId, { stage: i.interview.stage, status: i.status });
+    }
+    return out;
   }
   const { data, error } = await supabaseAdmin()
     .from("cos_recruitment_bookings")
-    .select("jobadder_candidate_id, status, interview:cos_recruitment_interviews!inner(recruiter_id, jobadder_job_id)")
-    .eq("interview.recruiter_id", recruiterId)
+    .select("jobadder_candidate_id, status, interview:cos_recruitment_interviews!inner(jobadder_job_id, stage)")
     .eq("interview.jobadder_job_id", jobId)
     .neq("status", "cancelled");
   if (error) throw new Error(`Invite lookup failed: ${error.message}`);
-  return new Map((data ?? []).map((r) => [r.jobadder_candidate_id as string, r.status as BookingStatus]));
+  for (const r of data ?? []) {
+    const interview = r.interview as unknown as { stage: Stage };
+    add(r.jobadder_candidate_id as string, { stage: interview.stage, status: r.status as BookingStatus });
+  }
+  return out;
 }
 
 // Creates one booking per candidate in 'invited'. Returns the new booking ids by
@@ -498,35 +521,72 @@ export async function replaceInviteToken(bookingId: string, tokenHash: string, e
 
 // --- Notes -----------------------------------------------------------------
 
+const NOTE_COLUMNS = "id, body, offset_ms, created_at, author_id, author_name, author_kind";
+
+type NoteRow = {
+  id: number;
+  body: string;
+  offset_ms: number | null;
+  created_at: string;
+  author_id: string;
+  author_name: string | null;
+  author_kind: InterviewNote["authorKind"];
+};
+
+const toNote = (n: NoteRow): InterviewNote => ({
+  id: String(n.id),
+  body: n.body,
+  offsetMs: n.offset_ms,
+  createdAt: n.created_at,
+  authorId: n.author_id,
+  authorName: n.author_name,
+  authorKind: n.author_kind,
+});
+
 export async function listNotes(bookingId: string): Promise<InterviewNote[]> {
   if (demoMode()) return [...(demoStore().notes.get(bookingId) ?? [])];
   const { data, error } = await supabaseAdmin()
     .from("cos_recruitment_interview_notes")
-    .select("id, body, offset_ms, created_at")
+    .select(NOTE_COLUMNS)
     .eq("booking_id", bookingId)
     .order("created_at", { ascending: true });
   if (error) throw new Error(`Loading notes failed: ${error.message}`);
-  return (data ?? []).map((n) => ({ id: String(n.id), body: n.body, offsetMs: n.offset_ms, createdAt: n.created_at }));
+  return (data ?? []).map(toNote);
 }
 
 export async function addNote(
   bookingId: string,
-  authorId: string,
+  author: { id: string; name: string; kind: InterviewNote["authorKind"] },
   note: { body: string; offsetMs: number | null },
 ): Promise<InterviewNote> {
   if (demoMode()) {
     const notes = demoStore().notes;
-    const created = { id: demoId("note"), body: note.body, offsetMs: note.offsetMs, createdAt: new Date().toISOString() };
+    const created: InterviewNote = {
+      id: demoId("note"),
+      body: note.body,
+      offsetMs: note.offsetMs,
+      createdAt: new Date().toISOString(),
+      authorId: author.id,
+      authorName: author.name,
+      authorKind: author.kind,
+    };
     notes.set(bookingId, [...(notes.get(bookingId) ?? []), created]);
     return created;
   }
   const { data, error } = await supabaseAdmin()
     .from("cos_recruitment_interview_notes")
-    .insert({ booking_id: bookingId, author_id: authorId, body: note.body, offset_ms: note.offsetMs })
-    .select("id, body, offset_ms, created_at")
+    .insert({
+      booking_id: bookingId,
+      author_id: author.id,
+      author_name: author.name,
+      author_kind: author.kind,
+      body: note.body,
+      offset_ms: note.offsetMs,
+    })
+    .select(NOTE_COLUMNS)
     .single();
   if (error) throw new Error(`Saving note failed: ${error.message}`);
-  return { id: String(data.id), body: data.body, offsetMs: data.offset_ms, createdAt: data.created_at };
+  return toNote(data as NoteRow);
 }
 
 export async function deleteNote(bookingId: string, noteId: string): Promise<void> {

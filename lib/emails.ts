@@ -209,3 +209,42 @@ export function reminderEmail(
   ].join("\n\n");
   return { subject, bodyHtml, text };
 }
+
+// A client attendee's invitation to a client interview, with their personal
+// link to the client lobby (candidate's resume, job description, notes).
+export function guestInviteEmail(
+  input: Sender & {
+    guestName: string | null;
+    candidateName: string;
+    jobTitle: string | null;
+    stage: string;
+    when: string | null;
+    link: string;
+  },
+): EmailContent {
+  const hi = input.guestName ? `Hi ${firstName(input.guestName)},` : "Hi,";
+  const role = input.jobTitle ? ` for the ${escape(input.jobTitle)} role` : "";
+  const plainRole = input.jobTitle ? ` for the ${input.jobTitle} role` : "";
+  const subject = `${input.stage}: ${input.candidateName}${input.jobTitle ? ` – ${input.jobTitle}` : ""}`;
+  const when = input.when ? ` on ${escape(input.when)}` : "";
+  const plainWhen = input.when ? ` on ${input.when}` : "";
+
+  const bodyHtml = `
+<div ${WRAP}>
+  <p>${hi}</p>
+  <p>You're invited to the ${escape(input.stage)} with ${escape(input.candidateName)}${role}${when}.</p>
+  <p>Your link below opens your waiting room, with the candidate's resume and the job description to read beforehand and a place to keep notes. When it's time, I'll bring you into the video call - it runs in your web browser, so there's nothing to install.</p>
+  <p style="margin:28px 0"><a href="${escape(input.link)}" ${BUTTON}>Open your interview room</a></p>
+  <p ${MUTED}>This link is personal to you - please don't forward it. If the button doesn't work, copy this address into your browser:<br><span style="word-break:break-all">${escape(input.link)}</span></p>
+  ${signature(input)}
+</div>`.trim();
+  const text = [
+    input.guestName ? `Hi ${first(input.guestName)},` : "Hi,",
+    `You're invited to the ${input.stage} with ${input.candidateName}${plainRole}${plainWhen}.`,
+    "Your link opens your waiting room, with the candidate's resume and the job description to read beforehand and a place to keep notes. When it's time, I'll bring you into the video call (it runs in your web browser - nothing to install):",
+    input.link,
+    "This link is personal to you - please don't forward it.",
+    textSignature(input),
+  ].join("\n\n");
+  return { subject, bodyHtml, text };
+}

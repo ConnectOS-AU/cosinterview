@@ -1,11 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { attendanceLine, listAttendees, recordAttendee } from "@/lib/attendance";
+import { isClientStage, noteLine, parseCallName, stageLabel, stagePrefix, type GuestRole } from "@/lib/stages";
+import { formatSlot, guestInviteEmail } from "@/lib/emails";
+import { addGuest, guestDisplayName, listGuests, markGuestInvited, newGuestLink, removeGuest, setClientResumeId, type Guest } from "@/lib/guests";
+import { listResumeVersions } from "@/lib/resumes";
+import { sendCandidateMail } from "@/lib/mail";
 import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { createOwnerToken } from "@/lib/daily";
 import { demoMode } from "@/lib/demo";
 import { siteUrl } from "@/lib/invite";
-import { addCandidateNote, jobAdderWriteConfigured } from "@/lib/staff/jobadder-api";
+import { addCandidateNote, jobAdderWriteConfigured, logToJobAdder } from "@/lib/staff/jobadder-api";
 import { getInterviewRecord, markSummaryWritten } from "@/lib/staff/transcripts";
 import { findInviteById } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
@@ -13,6 +20,7 @@ import { requireRecruiter } from "@/lib/staff/auth";
 import {
   addNote,
   deleteNote,
+  listNotes,
   recordRecordingStarted,
   setBookingStatus,
   type InterviewNote,
@@ -43,6 +51,7 @@ export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
     // recruiter side so the transcript labels them as the interviewer.
     const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
     const token = await createOwnerToken(room.name, { name, recruiterId: staff.recruiter.id });
+    await recordAttendee(bookingId, { name, kind: "recruiter" });
     return { ok: true, roomUrl: room.url, token };
   } catch (err) {
     console.error("[recruiter join]", bookingId, err);
@@ -54,7 +63,13 @@ export async function saveNote(bookingId: string, body: string, offsetMs: number
   const { staff } = await ownBooking(bookingId);
   const text = body.trim().slice(0, 5000);
   if (!text) throw new Error("Note is empty.");
-  return addNote(bookingId, staff.userId, { body: text, offsetMs: offsetMs === null ? null : Math.max(0, Math.round(offsetMs)) });
+  // An admin working as this recruiter writes under their own name.
+  const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
+  return addNote(
+    bookingId,
+    { id: staff.userId, name, kind: "recruiter" },
+    { body: text, offsetMs: offsetMs === null ? null : Math.max(0, Math.round(offsetMs)) },
+  );
 }
 
 export async function removeNote(bookingId: string, noteId: string): Promise<void> {
@@ -69,8 +84,19 @@ export async function recordingStarted(bookingId: string, dailyRecordingId: stri
 }
 
 export async function finishInterview(bookingId: string, outcome: "completed" | "no_show"): Promise<void> {
-  await ownBooking(bookingId);
+  const { invite } = await ownBooking(bookingId);
   await setBookingStatus(bookingId, outcome);
+  // Who attended and everyone's notes (recruiter and client attendees) go to
+  // the candidate's JobAdder record, each with the stage and date in front.
+  after(async () => {
+    const [notes, attendees] = await Promise.all([listNotes(bookingId), listAttendees(bookingId)]);
+    const prefix = stagePrefix(invite.interview.stage, invite.slotStart);
+    const heading = `${stageLabel(invite.interview.stage)} notes${invite.interview.jobTitle ? ` - ${invite.interview.jobTitle}` : ""} (COSInterview)${outcome === "no_show" ? " - candidate didn't attend" : ""}`;
+    await logToJobAdder(
+      invite.jobadderCandidateId,
+      [heading, `${prefix} ${attendanceLine(attendees)}`, ...(notes.length ? ["", ...notes.map((n) => noteLine(prefix, n))] : [])].join("\n"),
+    );
+  });
 }
 
 // The recruiter reviews the summary, then sends it to the candidate's JobAdder
@@ -84,7 +110,7 @@ export async function sendSummaryToJobAdder(bookingId: string): Promise<{ ok: tr
 
   const s = record.summary;
   const text = [
-    `Video interview${invite.interview.jobTitle ? ` - ${invite.interview.jobTitle}` : ""} (COSInterview)`,
+    `${stagePrefix(invite.interview.stage, invite.slotStart)} Video interview summary${invite.interview.jobTitle ? ` - ${invite.interview.jobTitle}` : ""} (COSInterview)`,
     "",
     s.summary,
     "",
@@ -120,4 +146,119 @@ export async function regenerateReview(bookingId: string): Promise<{ ok: true } 
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
   }
+}
+
+// The notes so far, so the recruiter sees client attendees' notes as they come in.
+export async function loadNotes(bookingId: string): Promise<InterviewNote[]> {
+  await ownBooking(bookingId);
+  return listNotes(bookingId);
+}
+
+// Extra attendees: up to 5 client attendees (client interviews only) and up
+// to 5 others (any interview), invited by email, each with a personal link to
+// the attendee lobby.
+
+export type GuestResult = { ok: true; guests: Guest[]; link?: string; emailed?: boolean } | { ok: false; error: string };
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const guestLink = (token: string) => `${siteUrl()}/g/${token}`;
+
+async function ownOpenBooking(bookingId: string) {
+  const own = await ownBooking(bookingId);
+  if (own.invite.status === "cancelled" || own.invite.status === "completed") throw new Error("This interview is closed.");
+  return own;
+}
+
+// Emails the attendee their link in the recruiter's name. Returns whether it went.
+async function emailGuest(invite: Awaited<ReturnType<typeof ownBooking>>["invite"], guest: Guest, link: string): Promise<boolean> {
+  const content = guestInviteEmail({
+    guestName: guest.name,
+    candidateName: invite.candidateName,
+    jobTitle: invite.interview.jobTitle,
+    stage: stageLabel(invite.interview.stage),
+    when: invite.slotStart && invite.slotEnd ? formatSlot(invite.slotStart, invite.slotEnd, invite.recruiter.timezone) : null,
+    link,
+    recruiterName: invite.recruiter.displayName,
+    recruiterTitle: invite.recruiter.title,
+  });
+  try {
+    await sendCandidateMail({
+      to: { name: guestDisplayName(guest), email: guest.email },
+      recruiter: { name: invite.recruiter.displayName, email: invite.recruiter.calendarEmail },
+      subject: content.subject,
+      html: content.bodyHtml,
+      text: content.text,
+    });
+    await markGuestInvited(guest.id);
+    return true;
+  } catch (err) {
+    console.error("[guest email]", guest.email, err);
+    return false;
+  }
+}
+
+export async function inviteGuest(bookingId: string, email: string, name: string, role: GuestRole, send: boolean): Promise<GuestResult> {
+  try {
+    const { staff, invite } = await ownOpenBooking(bookingId);
+    if (role !== "client" && role !== "other") return { ok: false, error: "Choose Client or Other." };
+    if (role === "client" && !isClientStage(invite.interview.stage)) return { ok: false, error: "Client attendees are only for client interviews." };
+    const address = email.trim().toLowerCase();
+    if (!EMAIL.test(address) || address.length > 254) return { ok: false, error: "Enter a valid email address." };
+    const added = await addGuest(bookingId, { email: address, name: name.trim().slice(0, 120) || null, role }, staff.userId);
+    if ("error" in added) return { ok: false, error: added.error };
+    const link = guestLink(added.token);
+    const emailed = send ? await emailGuest(invite, added.guest, link) : false;
+    return { ok: true, guests: await listGuests(bookingId), link, emailed };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
+  }
+}
+
+// A new link (the old one stops working), emailed again if asked.
+export async function resendGuest(bookingId: string, guestId: string, send: boolean): Promise<GuestResult> {
+  try {
+    const { invite } = await ownOpenBooking(bookingId);
+    const guest = (await listGuests(bookingId)).find((g) => g.id === guestId);
+    const token = guest ? await newGuestLink(bookingId, guestId) : null;
+    if (!guest || !token) return { ok: false, error: "That attendee isn't on this interview." };
+    const link = guestLink(token);
+    const emailed = send ? await emailGuest(invite, guest, link) : false;
+    return { ok: true, guests: await listGuests(bookingId), link, emailed };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
+  }
+}
+
+export async function uninviteGuest(bookingId: string, guestId: string): Promise<GuestResult> {
+  try {
+    await ownBooking(bookingId);
+    await removeGuest(bookingId, guestId);
+    return { ok: true, guests: await listGuests(bookingId) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
+  }
+}
+
+// Which formatted resume client attendees see (null: the newest).
+export async function chooseClientResume(bookingId: string, attachmentId: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { invite } = await ownOpenBooking(bookingId);
+    if (attachmentId) {
+      const { versions } = await listResumeVersions(invite.jobadderCandidateId);
+      if (!versions.some((v) => v.id === attachmentId && v.formatted)) return { ok: false, error: "Attendees can only be shown a formatted resume." };
+    }
+    await setClientResumeId(bookingId, attachmentId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
+  }
+}
+
+// Someone came into the call (seen from the recruiter's screen). Extra
+// attendees join as "<name> (client)" / "<name> (other)"; anyone else admitted
+// is the candidate.
+export async function noteAttendee(bookingId: string, displayName: string): Promise<void> {
+  const { invite } = await ownBooking(bookingId);
+  const { name, role } = parseCallName(displayName.trim());
+  await recordAttendee(bookingId, role ? { name, kind: role } : { name: name || invite.candidateName, kind: "candidate" });
 }

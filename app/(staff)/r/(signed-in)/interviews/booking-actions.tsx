@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { BookingStatus } from "@/lib/types";
 import { cancelBooking, rescheduleBooking, resendInvite } from "./actions";
+import { ROW_BUTTON, ROW_BUTTON_DANGER } from "./button-styles";
 import { CopyButton } from "./copy-button";
 
 // Row actions on the interviews list: a fresh link for someone who hasn't
@@ -39,19 +40,19 @@ export function BookingActions({ bookingId, status, canEmail }: { bookingId: str
   const btn = "text-xs font-medium text-neutral-600 underline hover:text-neutral-950 disabled:opacity-40";
   return (
     <div className="flex flex-col items-end gap-1.5">
-      <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+      <div className="flex items-center justify-end gap-2 whitespace-nowrap">
         {status === "invited" && (
-          <button type="button" className={btn} disabled={pending} onClick={() => run("resend")}>
+          <button type="button" className={ROW_BUTTON} disabled={pending} onClick={() => run("resend")}>
             New link
           </button>
         )}
         {status === "booked" && (
-          <button type="button" className={btn} disabled={pending} onClick={() => run("reschedule")}>
+          <button type="button" className={ROW_BUTTON} disabled={pending} onClick={() => run("reschedule")}>
             Reschedule
           </button>
         )}
         {(status === "invited" || status === "booked") && (
-          <button type="button" className={btn} disabled={pending} onClick={() => run("cancel")}>
+          <button type="button" className={ROW_BUTTON_DANGER} disabled={pending} onClick={() => run("cancel")}>
             Cancel
           </button>
         )}

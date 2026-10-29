@@ -5,7 +5,9 @@ import { requireRecruiter } from "@/lib/staff/auth";
 import { mailConfigured } from "@/lib/mail";
 import { listBookingsForRecruiter, type BookingSummary } from "@/lib/staff/repo";
 import { STATUS_BADGE } from "@/lib/staff/status";
+import { stageLabel } from "@/lib/stages";
 import { BookingActions } from "./interviews/booking-actions";
+import { ROW_BUTTON } from "./interviews/button-styles";
 
 export const dynamic = "force-dynamic";
 
@@ -83,7 +85,12 @@ function Section({
                 const badge = STATUS_BADGE[b.status];
                 return (
                   <tr key={b.bookingId} className="hover:bg-neutral-50">
-                    <td className="px-4 py-3 font-medium text-neutral-900">{b.candidateName}</td>
+                    <td className="px-4 py-3 font-medium text-neutral-900">
+                      <Link href={`/r/bookings/${b.bookingId}`} className="hover:underline">
+                        {b.candidateName}
+                      </Link>
+                      <span className="block text-xs font-normal text-neutral-500">{stageLabel(b.stage)}</span>
+                    </td>
                     <td className="hidden px-4 py-3 text-neutral-700 sm:table-cell">
                       {b.jobTitle ?? "—"}
                       {b.clientName && <span className="text-neutral-400"> · {b.clientName}</span>}
@@ -101,7 +108,7 @@ function Section({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="flex items-start justify-end gap-4">
+                      <div className="flex items-start justify-end gap-2">
                         <BookingActions bookingId={b.bookingId} status={b.status} canEmail={canEmail} />
                         {b.status !== "invited" && b.status !== "cancelled" && (
                           <OverviewLink bookingId={b.bookingId} review={reviews.get(b.bookingId)} />
@@ -144,10 +151,10 @@ function OverviewLink({ bookingId, review }: { bookingId: string; review?: { sta
   return (
     <Link
       href={`/r/bookings/${bookingId}/overview`}
-      className="whitespace-nowrap pt-1.5 text-xs font-medium text-neutral-700 underline hover:text-neutral-950"
+      className={ROW_BUTTON}
     >
       Candidate overview
-      {tag && <span className="ml-1 rounded bg-neutral-100 px-1.5 py-0.5 no-underline text-neutral-600">{tag}</span>}
+      {tag && <span className="rounded bg-neutral-100 px-1.5 py-px text-neutral-600">{tag}</span>}
     </Link>
   );
 }

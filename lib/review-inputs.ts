@@ -2,7 +2,7 @@ import "server-only";
 import mammoth from "mammoth";
 import sanitizeHtml from "sanitize-html";
 import { getJobDescription } from "./job-description";
-import { jobAdderGet, jobAdderGetFile, jobAdderWriteConfigured } from "./staff/jobadder-api";
+import { downloadResumeVersion, listResumeVersions, versionForReview, type ResumeFile } from "./resumes";
 import { supabaseAdmin } from "./supabase/admin";
 import type { InviteRecord } from "./types";
 
@@ -18,7 +18,6 @@ import type { InviteRecord } from "./types";
 // and .../attachments/{attachmentId}) and their field names. When no resume is
 // found, the attachment fields are logged so the matching can be adjusted.
 
-const MAX_RESUME_BYTES = 15 * 1024 * 1024;
 const MAX_RESUME_TEXT = 60_000;
 const MAX_NOTES = 40;
 const MAX_NOTE_CHARS = 3_000;
@@ -65,58 +64,20 @@ export async function gatherReviewInputs(invite: InviteRecord): Promise<ReviewIn
 
 // --- Resume -------------------------------------------------------------------
 
-type Attachment = Record<string, unknown>;
-
-const str = (v: unknown): string => (typeof v === "string" || typeof v === "number" ? String(v) : "");
-
-function attachmentId(a: Attachment): string {
-  return str(a.attachmentId ?? a.id);
-}
-function attachmentName(a: Attachment): string {
-  return str(a.fileName ?? a.name ?? a.filename);
-}
-function attachmentKind(a: Attachment): string {
-  return `${str(a.attachmentType)} ${str(a.type)} ${str(a.category)}`.toLowerCase();
-}
-function attachmentDate(a: Attachment): number {
-  return Date.parse(str(a.createdAt ?? a.dateCreated ?? a.updatedAt ?? a.dateUpdated)) || 0;
-}
-
-const READABLE = /\.(pdf|docx|txt)$/i;
-
 async function findResume(candidateId: string): Promise<{ resume: Resume | null; problem: string | null }> {
-  if (!/^\d+$/.test(candidateId) || !jobAdderWriteConfigured()) return { resume: null, problem: "JobAdder isn't connected." };
-  let list: Attachment[];
+  const { versions, problem } = await listResumeVersions(candidateId);
+  const version = versionForReview(versions);
+  if (!version) return { resume: null, problem: problem ?? "No resume on JobAdder." };
+  const { fileName } = version;
+  let file: ResumeFile;
   try {
-    const res = await jobAdderGet<{ items?: Attachment[] } | Attachment[]>(`/candidates/${candidateId}/attachments`);
-    list = Array.isArray(res) ? res : (res.items ?? []);
+    file = await downloadResumeVersion(candidateId, version);
   } catch (err) {
-    console.error("[review] Attachment list failed", candidateId, err);
-    return { resume: null, problem: "Couldn't read the candidate's attachments from JobAdder." };
+    console.error("[review] Resume download failed", candidateId, fileName, err);
+    return { resume: null, problem: `Couldn't download the resume (${fileName}) from JobAdder.` };
   }
-
-  // Newest resume first; otherwise the newest file that looks like a resume.
-  const byDate = [...list].sort((a, b) => attachmentDate(b) - attachmentDate(a));
-  const pick =
-    byDate.find((a) => /resume|cv/.test(attachmentKind(a)) && READABLE.test(attachmentName(a))) ??
-    byDate.find((a) => /resume|cv/i.test(attachmentName(a)) && READABLE.test(attachmentName(a))) ??
-    byDate.find((a) => /resume|cv/.test(attachmentKind(a)));
-  if (!pick || !attachmentId(pick)) {
-    console.info(
-      "[review] No resume found for candidate",
-      candidateId,
-      "-",
-      list.length,
-      "attachments, fields:",
-      list[0] ? Object.keys(list[0]).join(", ") : "(none)",
-    );
-    return { resume: null, problem: list.length ? "No resume among the candidate's JobAdder attachments." : "No resume on JobAdder." };
-  }
-
-  const fileName = attachmentName(pick) || "resume";
+  const { isPdf } = file;
   try {
-    const file = await jobAdderGetFile(`/candidates/${candidateId}/attachments/${encodeURIComponent(attachmentId(pick))}`, MAX_RESUME_BYTES);
-    const isPdf = file.contentType === "application/pdf" || /\.pdf$/i.test(fileName) || file.bytes.subarray(0, 5).toString() === "%PDF-";
     if (isPdf) return { resume: { kind: "pdf", fileName, base64: file.bytes.toString("base64") }, problem: null };
     if (/\.docx$/i.test(fileName) || file.contentType.includes("wordprocessingml")) {
       const { value } = await mammoth.extractRawText({ buffer: file.bytes });
@@ -125,8 +86,8 @@ async function findResume(candidateId: string): Promise<{ resume: Resume | null;
     if (/\.txt$/i.test(fileName) || file.contentType.startsWith("text/")) return textResume(fileName, file.bytes.toString("utf8"));
     return { resume: null, problem: `The resume (${fileName}) is in a format that can't be read automatically - PDF or Word (.docx) only.` };
   } catch (err) {
-    console.error("[review] Resume download failed", candidateId, fileName, err);
-    return { resume: null, problem: `Couldn't download the resume (${fileName}) from JobAdder.` };
+    console.error("[review] Resume couldn't be read", candidateId, fileName, err);
+    return { resume: null, problem: `Couldn't read the resume (${fileName}).` };
   }
 }
 
