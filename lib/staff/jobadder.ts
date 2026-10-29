@@ -32,6 +32,8 @@ function toJob(row: JobRow): JobAdderJob {
 const JOB_COLUMNS = "job_id, job_title, company_name, owner_email, owner_first_name, owner_last_name, status_name, updated_at";
 
 // Active jobs (Open, On hold), newest first. `search` matches title or client.
+// All of them (there are a couple of hundred at most), so a recruiter's own
+// jobs are never cut off the list.
 export async function listActiveJobs(search: string): Promise<JobAdderJob[]> {
   const term = search.trim().toLowerCase();
   if (demoMode()) {
@@ -42,7 +44,7 @@ export async function listActiveJobs(search: string): Promise<JobAdderJob[]> {
     .select(JOB_COLUMNS)
     .eq("status_active", true)
     .order("updated_at", { ascending: false })
-    .limit(100);
+    .limit(500);
   if (term) {
     // Strip characters PostgREST's or() syntax treats specially.
     const safe = term.replace(/[,()*%\\]/g, " ").trim();
