@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
 import { mailConfigured } from "@/lib/mail";
 import { requireRecruiter } from "@/lib/staff/auth";
+import { jobsWithRecruiter } from "@/lib/staff/job-detail";
 import { getJob, listActiveJobs, listApplications } from "@/lib/staff/jobadder";
 import { invitesForJob } from "@/lib/staff/repo";
 import { STATUS_BADGE } from "@/lib/staff/status";
@@ -31,9 +32,19 @@ export default async function NewInterviewPage({ searchParams }: Props) {
 async function ChooseJob({ q }: { q: string }) {
   const { recruiter } = await requireRecruiter();
   const jobs = await listActiveJobs(q);
-  const mine = (j: JobAdderJob) => j.ownerEmail?.toLowerCase() === recruiter.calendarEmail.toLowerCase();
-  const own = jobs.filter(mine);
-  const others = jobs.filter((j) => !mine(j));
+  const email = recruiter.calendarEmail.toLowerCase();
+  // "Your jobs": ones you own in JobAdder, or where you're one of the job's
+  // recruiters (read from JobAdder, see lib/staff/job-detail.ts).
+  const owned = new Set(jobs.filter((j) => j.ownerEmail?.toLowerCase() === email).map((j) => j.jobId));
+  const recruiting = await jobsWithRecruiter(
+    jobs.filter((j) => !owned.has(j.jobId)).map((j) => j.jobId),
+    email,
+  );
+  const roles = new Map<string, string>();
+  for (const id of owned) roles.set(id, "Owner");
+  for (const id of recruiting) roles.set(id, "Recruiter");
+  const own = jobs.filter((j) => roles.has(j.jobId));
+  const others = jobs.filter((j) => !roles.has(j.jobId));
 
   return (
     <>
@@ -49,13 +60,18 @@ async function ChooseJob({ q }: { q: string }) {
         </button>
       </form>
       <p className="text-sm text-neutral-500">Pick the JobAdder job you&apos;re interviewing for. Only open and on-hold jobs are shown.</p>
-      <JobList title="Your jobs" jobs={own} empty={q ? "None of your jobs match." : "No open jobs owned by you."} />
+      <JobList
+        title="Your jobs"
+        jobs={own}
+        roles={roles}
+        empty={q ? "None of your jobs match." : "No open jobs where you're the owner or a recruiter."}
+      />
       <JobList title="Other active jobs" jobs={others} empty="No other jobs match." />
     </>
   );
 }
 
-function JobList({ title, jobs, empty }: { title: string; jobs: JobAdderJob[]; empty: string }) {
+function JobList({ title, jobs, empty, roles }: { title: string; jobs: JobAdderJob[]; empty: string; roles?: Map<string, string> }) {
   return (
     <section>
       <h2 className="mb-2 text-sm font-semibold text-neutral-700">{title}</h2>
@@ -72,6 +88,9 @@ function JobList({ title, jobs, empty }: { title: string; jobs: JobAdderJob[]; e
                 <span>
                   <span className="font-medium text-neutral-900">{job.title}</span>
                   {job.companyName && <span className="text-neutral-500"> · {job.companyName}</span>}
+                  {roles?.get(job.jobId) && (
+                    <span className="ml-2 rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-medium text-neutral-600">{roles.get(job.jobId)}</span>
+                  )}
                 </span>
                 <span className="text-xs text-neutral-500">
                   {job.statusName}
