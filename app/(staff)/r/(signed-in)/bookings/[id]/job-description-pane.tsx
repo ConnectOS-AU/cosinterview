@@ -10,7 +10,16 @@ const BTN =
 // The job description from JobAdder beside the video, in its own scrolling
 // pane, with zoom so it can be read comfortably mid-interview. The zoom level is
 // remembered on this computer. html is already cleaned (lib/job-description.ts).
-export function JobDescriptionPane({ jobTitle, html }: { jobTitle: string | null; html: string | null }) {
+// `sizeClass` sets the pane's height where it shares the space.
+export function JobDescriptionPane({
+  jobTitle,
+  html,
+  sizeClass = "max-h-[38rem] lg:max-h-[calc(100vh-8rem)]",
+}: {
+  jobTitle: string | null;
+  html: string | null;
+  sizeClass?: string;
+}) {
   const [zoom, setZoom] = useState(100);
 
   useEffect(() => {
@@ -36,7 +45,7 @@ export function JobDescriptionPane({ jobTitle, html }: { jobTitle: string | null
   const index = ZOOM_STEPS.indexOf(zoom);
 
   return (
-    <section className="flex max-h-[38rem] flex-col rounded-lg border border-neutral-200 bg-white lg:max-h-[calc(100vh-8rem)]">
+    <section className={`flex flex-col rounded-lg border border-neutral-200 bg-white ${sizeClass}`}>
       <div className="flex items-center justify-between gap-2 border-b border-neutral-200 px-4 py-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-neutral-900">Job description</h2>

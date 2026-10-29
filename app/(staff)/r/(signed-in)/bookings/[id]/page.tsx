@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
+import { getCandidateReview } from "@/lib/candidate-review";
 import { getJobDescription } from "@/lib/job-description";
 import { mailConfigured } from "@/lib/mail";
 import { findInviteById } from "@/lib/repo";
@@ -11,7 +12,7 @@ import { getInterviewRecord } from "@/lib/staff/transcripts";
 import { BookingActions } from "../../interviews/booking-actions";
 import { InterviewRecordView } from "./interview-record";
 import { InterviewScreen } from "./interview-screen";
-import { JobDescriptionPane } from "./job-description-pane";
+import { InterviewAside } from "./interview-aside";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +25,10 @@ export default async function BookingPage({ params }: Props) {
   if (!invite || invite.recruiter.id !== recruiter.id) notFound();
 
   const live = invite.status !== "completed";
-  const [notes, jobDescription] = await Promise.all([
+  const [notes, jobDescription, review] = await Promise.all([
     listNotes(invite.bookingId),
     live ? getJobDescription(invite.interview.jobadderJobId) : null,
+    live ? getCandidateReview(invite.bookingId) : null,
   ]);
   const zone = recruiter.timezone;
   const badge = STATUS_BADGE[invite.status];
@@ -49,6 +51,14 @@ export default async function BookingPage({ params }: Props) {
           </p>
         </div>
         <div className="flex items-start gap-4">
+          {invite.status !== "invited" && invite.status !== "cancelled" && (
+            <Link
+              href={`/r/bookings/${invite.bookingId}/overview`}
+              className="pt-1.5 text-xs font-medium text-neutral-700 underline hover:text-neutral-950"
+            >
+              Candidate overview
+            </Link>
+          )}
           <BookingActions bookingId={invite.bookingId} status={invite.status} canEmail={mailConfigured()} />
           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badge.className}`}>{badge.label}</span>
         </div>
@@ -62,7 +72,15 @@ export default async function BookingPage({ params }: Props) {
           candidateName={invite.candidateName}
           canJoin={invite.status === "booked" || invite.status === "in_progress"}
           initialNotes={notes}
-          aside={<JobDescriptionPane jobTitle={invite.interview.jobTitle} html={jobDescription} />}
+          aside={
+            <InterviewAside
+              bookingId={invite.bookingId}
+              jobTitle={invite.interview.jobTitle}
+              jobHtml={jobDescription}
+              questions={review?.review?.questions ?? null}
+              reviewStatus={review?.status ?? "none"}
+            />
+          }
         />
       )}
     </main>

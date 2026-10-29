@@ -1,5 +1,7 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { createOwnerToken } from "@/lib/daily";
 import { demoMode } from "@/lib/demo";
 import { siteUrl } from "@/lib/invite";
@@ -101,5 +103,21 @@ export async function sendSummaryToJobAdder(bookingId: string): Promise<{ ok: tr
   } catch (err) {
     console.error("[jobadder note]", bookingId, err);
     return { ok: false, error: "JobAdder didn't accept the note. Please try again or paste it in manually." };
+  }
+}
+
+// Candidate overview: write it again from the latest resume, notes and job
+// description (also adds a fresh JobAdder note). Takes up to a minute or two.
+export async function regenerateReview(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { invite } = await ownBooking(bookingId);
+    if (invite.status === "invited" || invite.status === "cancelled") return { ok: false, error: "The candidate hasn't booked." };
+    const result = await regenerateCandidateReview(invite);
+    revalidatePath(`/r/bookings/${bookingId}/overview`);
+    if (result === "skipped") return { ok: false, error: "The overview isn't set up on this server (no Anthropic API key)." };
+    if (result === "failed") return { ok: false, error: "The overview couldn't be written - the details are on the page." };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
   }
 }

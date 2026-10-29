@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DateTime } from "luxon";
+import { listReviewSummaries } from "@/lib/candidate-review";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { mailConfigured } from "@/lib/mail";
 import { listBookingsForRecruiter, type BookingSummary } from "@/lib/staff/repo";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function InterviewsPage() {
   const { recruiter } = await requireRecruiter();
   const bookings = await listBookingsForRecruiter(recruiter.id);
+  const reviews = await listReviewSummaries(bookings.filter((b) => b.status !== "invited" && b.status !== "cancelled").map((b) => b.bookingId));
   const now = DateTime.utc();
 
   const isOpen = (b: BookingSummary) =>
@@ -33,9 +35,9 @@ export default async function InterviewsPage() {
           New interview
         </Link>
       </div>
-      <Section title="Upcoming" empty="No interviews booked yet." rows={upcoming} zone={recruiter.timezone} canEmail={canEmail} highlightJoin />
-      <Section title="Waiting for the candidate to book" empty="Nobody waiting." rows={awaiting} zone={recruiter.timezone} canEmail={canEmail} />
-      <Section title="Past 30 days" empty="Nothing in the last 30 days." rows={past} zone={recruiter.timezone} canEmail={canEmail} />
+      <Section title="Upcoming" reviews={reviews} empty="No interviews booked yet." rows={upcoming} zone={recruiter.timezone} canEmail={canEmail} highlightJoin />
+      <Section title="Waiting for the candidate to book" reviews={reviews} empty="Nobody waiting." rows={awaiting} zone={recruiter.timezone} canEmail={canEmail} />
+      <Section title="Past 30 days" reviews={reviews} empty="Nothing in the last 30 days." rows={past} zone={recruiter.timezone} canEmail={canEmail} />
     </main>
   );
 }
@@ -46,6 +48,7 @@ function Section({
   rows,
   zone,
   canEmail,
+  reviews,
   highlightJoin = false,
 }: {
   title: string;
@@ -53,6 +56,7 @@ function Section({
   rows: BookingSummary[];
   zone: string;
   canEmail: boolean;
+  reviews: Awaited<ReturnType<typeof listReviewSummaries>>;
   highlightJoin?: boolean;
 }) {
   return (
@@ -100,6 +104,9 @@ function Section({
                       <div className="flex items-start justify-end gap-4">
                         <BookingActions bookingId={b.bookingId} status={b.status} canEmail={canEmail} />
                         {b.status !== "invited" && b.status !== "cancelled" && (
+                          <OverviewLink bookingId={b.bookingId} review={reviews.get(b.bookingId)} />
+                        )}
+                        {b.status !== "invited" && b.status !== "cancelled" && (
                           <Link
                             href={`/r/bookings/${b.bookingId}`}
                             className={
@@ -121,5 +128,24 @@ function Section({
         </div>
       )}
     </section>
+  );
+}
+
+// The pre-interview candidate overview, with its likelihood once written.
+function OverviewLink({ bookingId, review }: { bookingId: string; review?: { status: string; likelihood: number | null } }) {
+  const tag =
+    review?.status === "done" && review.likelihood !== null
+      ? `${review.likelihood}%`
+      : review?.status === "pending" || review?.status === "running"
+        ? "writing…"
+        : null;
+  return (
+    <Link
+      href={`/r/bookings/${bookingId}/overview`}
+      className="whitespace-nowrap pt-1.5 text-xs font-medium text-neutral-700 underline hover:text-neutral-950"
+    >
+      Candidate overview
+      {tag && <span className="ml-1 rounded bg-neutral-100 px-1.5 py-0.5 no-underline text-neutral-600">{tag}</span>}
+    </Link>
   );
 }
