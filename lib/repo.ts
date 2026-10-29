@@ -10,7 +10,7 @@ import type { BookingStatus, InviteRecord, TimeRange } from "./types";
 // Supabase isn't configured, so pages and actions don't need to care.
 
 const INVITE_SELECT = `
-  id, status, candidate_name, candidate_email, candidate_timezone,
+  id, status, candidate_name, candidate_email, whatsapp_number, viber_number, candidate_timezone,
   jobadder_candidate_id, jobadder_application_id,
   slot_start, slot_end, invite_expires_at, daily_room_name, daily_room_url, graph_event_id,
   interview:cos_recruitment_interviews!inner (
@@ -26,6 +26,8 @@ type Row = {
   status: BookingStatus;
   candidate_name: string;
   candidate_email: string;
+  whatsapp_number: string | null;
+  viber_number: string | null;
   candidate_timezone: string | null;
   jobadder_candidate_id: string;
   jobadder_application_id: string | null;
@@ -66,6 +68,8 @@ function toRecord(row: Row): InviteRecord {
     status: row.status,
     candidateName: row.candidate_name,
     candidateEmail: row.candidate_email,
+    candidateWhatsapp: row.whatsapp_number,
+    candidateViber: row.viber_number,
     candidateTimezone: row.candidate_timezone,
     jobadderCandidateId: row.jobadder_candidate_id,
     jobadderApplicationId: row.jobadder_application_id,
@@ -201,6 +205,17 @@ export async function saveGraphEvent(bookingId: string, eventId: string | null):
     .update({ graph_event_id: eventId })
     .eq("id", bookingId);
   if (error) throw new Error(`Saving calendar event failed: ${error.message}`);
+}
+
+// The WhatsApp and Viber numbers the candidate gave when booking (already
+// normalised), saved after the slot is claimed.
+export async function saveCandidateNumbers(bookingId: string, numbers: { whatsapp: string | null; viber: string | null }): Promise<void> {
+  if (demoMode()) return updateDemoInvite(bookingId, { candidateWhatsapp: numbers.whatsapp, candidateViber: numbers.viber });
+  const { error } = await supabaseAdmin()
+    .from("cos_recruitment_bookings")
+    .update({ whatsapp_number: numbers.whatsapp, viber_number: numbers.viber })
+    .eq("id", bookingId);
+  if (error) throw new Error(`Saving WhatsApp/Viber numbers failed: ${error.message}`);
 }
 
 // Cancel (by either side) or put back to 'invited' with a fresh link so the

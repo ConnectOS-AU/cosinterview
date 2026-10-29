@@ -36,7 +36,7 @@ candidates see it as "ConnectOS Interviews".
 
 | Route | What it does |
 |---|---|
-| `/c/<recruiter-slug>/<token>` | Welcome (recruiter photo, bio, welcome message), time picker in the candidate's time zone, recording consent, booking. After booking: confirmation. |
+| `/c/<recruiter-slug>/<token>` | Welcome (recruiter photo, bio, welcome message), time picker in the candidate's time zone, optional WhatsApp and Viber numbers, recording consent, booking. After booking: confirmation. |
 | `/c/<recruiter-slug>/<token>/room` | Interview room. The candidate joins the Daily room **without a meeting token**, so Daily holds them in the lobby; the page shows the ConnectOS waiting screen until the recruiter admits them, then shows the video. |
 | `/c/<recruiter-slug>/<token>/invite.ics` | "Add to calendar" download. |
 | `/c/<recruiter-slug>/<token>/job` | The job description from JobAdder, linked from the lobby (opens in a new tab so the candidate keeps their place). |
@@ -45,6 +45,10 @@ candidates see it as "ConnectOS Interviews".
 - The waiting screen's content is edited by admins at `/r/admin/lobby`; `content/waiting-room.ts` holds the
   default it starts from (placeholder copy - replace it in the editor before go-live).
 - Booking rules (working hours, notice, days ahead) are in `lib/availability.ts`.
+- **WhatsApp and Viber** (`lib/messaging.ts`, through Infobip): when the candidate gives their numbers,
+  the booking confirmation, 24h and 2h reminders, a moved interview and a cancellation go there as well as
+  by email, and the JobAdder note says what was sent where. Numbers typed as 09xx are taken as Philippine
+  (+63); others need their + and country code. Until Infobip is set up, messages are logged, not sent.
 - Recruiter photos come from the public Supabase Storage bucket `recruitment-public`.
 - **Local demo:** with `npm run dev`, open `/c/demo/demo` to click through without any
   credentials (`?reset=1` starts it again). The demo is disabled in production.
@@ -136,6 +140,11 @@ Accounts and access (IT / admin):
 - [ ] **SendGrid**: COSHub's API key, and a verified sender for `SENDGRID_FROM_EMAIL` (or domain
   authentication for connectos.co). Send one test invite to yourself first.
 - [ ] **Groq** and **Anthropic** API keys.
+- [ ] **Infobip** (WhatsApp and Viber): an account with `INFOBIP_BASE_URL` and `INFOBIP_API_KEY`.
+  WhatsApp: a WhatsApp Business sender (`INFOBIP_WHATSAPP_SENDER`) and an approved **utility** template
+  named `cosinterview_update` (or set `INFOBIP_WHATSAPP_TEMPLATE`) whose body is just `{{1}}` - the whole
+  message goes in that one value, on one line. Viber: a Viber Business sender name (`INFOBIP_VIBER_SENDER`).
+  Without these, candidates' numbers are still saved and the JobAdder note says the message wasn't sent.
 - [ ] **Worker schedule**: `POST /api/worker/run` every 15 minutes with `WORKER_SECRET`, on one server
   (recording retries and candidate reminders).
 - [ ] **COSHub**: merge the cosops iframe change, then add a menu item embedding
@@ -167,6 +176,8 @@ Test before relying on it:
 - [ ] **Second screen inside COSHub** (optional): for the window to open directly on the other monitor, the
   COSHub iframe's `allow` list also needs `window-management`. Without it the window opens on the same
   screen and the interviewer drags it across.
+- [ ] **WhatsApp / Viber** - Infobip's request formats (`lib/messaging.ts`) were written from their
+  documentation without a test account. Book a test interview with your own numbers and check both arrive.
 - [ ] One end-to-end interview: invite email, booking, Outlook entry, lobby, recording, transcript,
   summary.
 
@@ -185,7 +196,8 @@ worker queue functions, `005` recruiter admins (with Simon as the first admin), 
 candidate overviews (one per booking, claimed by `cos_recruitment_claim_review`, deleted with the
 transcripts after 12 months), and `008` interview stages, note authors, extra attendees
 (`cos_recruitment_guests`), the formatted resume attendees see, and attendance
-(`cos_recruitment_attendees`).
+(`cos_recruitment_attendees`), and `009` the candidate overview after the interview (on the
+same row as the one before) and candidates' WhatsApp and Viber numbers.
 
 ## Local setup
 

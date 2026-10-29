@@ -1,4 +1,5 @@
 import "server-only";
+import { runDebrief } from "../candidate-debrief";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -202,6 +203,9 @@ async function runPipeline(recordingId: string, work: string): Promise<void> {
         .from("cos_recruitment_summaries")
         .insert({ recording_id: recordingId, model: SUMMARY_MODEL, summary: result.summary, scores: result });
       if (saved.error) throw new Error(`Saving summary failed: ${saved.error.message}`);
+      // The candidate overview after the interview (best-effort; it records
+      // its own failure and can be regenerated from the overview page).
+      await runDebrief(booking, transcript);
     }
   }
 

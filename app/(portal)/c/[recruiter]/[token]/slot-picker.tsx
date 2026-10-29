@@ -16,7 +16,7 @@ type Props = {
 };
 
 // Day chips, then times for that day, in the candidate's own time zone
-// (detected from the browser), then consent and book.
+// (detected from the browser), then WhatsApp/Viber numbers (optional), consent and book.
 export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruiterFirstName }: Props) {
   const router = useRouter();
   const [zone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Manila");
@@ -24,6 +24,8 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
   const [dayKey, setDayKey] = useState<string | null>(days[0]?.key ?? null);
   const [slot, setSlot] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
+  const [whatsapp, setWhatsapp] = useState("");
+  const [viber, setViber] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -42,7 +44,7 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
     if (!slot) return;
     setError(null);
     startTransition(async () => {
-      const result = await bookInterview({ recruiter: recruiterSlug, token, slotStart: slot, timezone: zone, consent });
+      const result = await bookInterview({ recruiter: recruiterSlug, token, slotStart: slot, timezone: zone, consent, whatsapp, viber });
       if (result.ok) {
         router.refresh();
         return;
@@ -113,6 +115,29 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
             <span className="font-medium">{formatTime(slot, zone)}</span>
             <span className="text-brand-muted"> &middot; {durationMins} minutes</span>
           </p>
+          <fieldset className="space-y-3">
+            <legend className="text-sm text-brand-text">
+              Want your confirmation and reminders on WhatsApp or Viber too? Add your numbers{" "}
+              <span className="text-brand-faint">(optional)</span>
+            </legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <PhoneField id="whatsapp" label="WhatsApp number" value={whatsapp} onChange={setWhatsapp} />
+              <PhoneField
+                id="viber"
+                label="Viber number"
+                value={viber}
+                onChange={setViber}
+                action={
+                  whatsapp.trim() && viber !== whatsapp ? (
+                    <button type="button" onClick={() => setViber(whatsapp)} className="text-xs text-brand-teal underline">
+                      Same as WhatsApp
+                    </button>
+                  ) : null
+                }
+              />
+            </div>
+            <p className="text-xs text-brand-faint">Include your country code if you&apos;re outside the Philippines, e.g. +61 412 345 678.</p>
+          </fieldset>
           <label className="flex items-start gap-3 text-sm text-brand-text">
             <input
               type="checkbox"
@@ -149,6 +174,42 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+function PhoneField({
+  id,
+  label,
+  value,
+  onChange,
+  action,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className="text-xs font-medium text-brand-muted">
+          {label}
+        </label>
+        {action}
+      </div>
+      <input
+        id={id}
+        type="tel"
+        inputMode="tel"
+        autoComplete="tel"
+        placeholder="0917 123 4567"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        maxLength={24}
+        className="mt-1 w-full rounded-lg border border-brand-line bg-brand-surface px-3 py-2 text-sm text-brand-ink placeholder:text-brand-faint focus:border-brand-teal focus:outline-none focus:ring-2 focus:ring-brand-teal/30"
+      />
     </div>
   );
 }

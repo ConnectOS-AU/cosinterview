@@ -15,6 +15,9 @@ export type InviteRecord = {
   status: BookingStatus;
   candidateName: string;
   candidateEmail: string;
+  // WhatsApp and Viber numbers the candidate gave when booking (+63...), if any.
+  candidateWhatsapp: string | null;
+  candidateViber: string | null;
   candidateTimezone: string | null;
   jobadderCandidateId: string;
   jobadderApplicationId: string | null;

@@ -7,6 +7,7 @@ import { cancellationEmail, type EmailContent, formatSlot, inviteEmail } from "@
 import { deleteInterviewEvent, graphConfigured } from "@/lib/graph";
 import { siteUrl } from "@/lib/invite";
 import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
+import { messageCandidate } from "@/lib/messaging";
 import { findInviteById, releaseBooking } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { INTERVIEW_LENGTHS } from "@/lib/staff/options";
@@ -53,7 +54,10 @@ async function sendToCandidate(recruiter: Recruiter, to: { name: string; email: 
 }
 
 // A JobAdder note: what happened, then the email the candidate got (if any).
-const note = (summary: string, email: string | null) => (email ? `${summary}\n\n${email}` : summary);
+const note = (summary: string, ...sent: (string | null)[]) => [summary, ...sent].filter(Boolean).join("\n\n");
+
+const numbersOf = (invite: InviteRecord) => ({ whatsapp: invite.candidateWhatsapp, viber: invite.candidateViber });
+const firstName = (name: string) => name.split(" ")[0];
 
 const EMAIL_FAILED = "Email couldn't be sent - copy the link instead.";
 
@@ -234,6 +238,13 @@ export async function rescheduleBooking(bookingId: string, sendEmail: boolean): 
           reschedule: true,
         }),
       )
+      : null;
+  const candidateWas = bookedWhen(invite, invite.candidateTimezone ?? recruiter.timezone);
+  const message = sendEmail
+    ? await messageCandidate(
+        numbersOf(invite),
+        `Hi ${firstName(invite.candidateName)}, your ConnectOS interview${candidateWas ? ` on ${candidateWas}` : ""} needs to move. Please choose a new time here: ${link}`,
+      )
     : null;
   after(() =>
     logToJobAdder(
@@ -241,6 +252,7 @@ export async function rescheduleBooking(bookingId: string, sendEmail: boolean): 
       note(
         `Interview${was ? ` on ${was}` : ""} moved via COSInterview: the candidate has a new link to choose another time (works until ${inviteExpiry(expiresAt)}).`,
         email,
+        message,
       ),
     ),
   );
@@ -274,9 +286,15 @@ export async function cancelBooking(bookingId: string): Promise<{ ok: true } | {
             when: candidateWhen,
           }),
         )
-      : null;
+        : null;
+  const message = candidateWhen
+    ? await messageCandidate(
+        numbersOf(invite),
+        `Hi ${firstName(invite.candidateName)}, your ConnectOS interview${invite.interview.jobTitle ? ` for ${invite.interview.jobTitle}` : ""} on ${candidateWhen} has been cancelled. ${invite.recruiter.displayName} will be in touch.`,
+      )
+    : null;
   after(() =>
-    logToJobAdder(invite.jobadderCandidateId, note(`Interview${was ? ` on ${was}` : " invite"} cancelled via COSInterview.`, email)),
+    logToJobAdder(invite.jobadderCandidateId, note(`Interview${was ? ` on ${was}` : " invite"} cancelled via COSInterview.`, email, message)),
   );
   revalidatePath("/r");
   return { ok: true };
