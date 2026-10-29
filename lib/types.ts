@@ -1,3 +1,4 @@
+import type { Stage } from "./stages";
 export type BookingStatus =
   | "invited"
   | "booked"
@@ -30,6 +31,7 @@ export type InviteRecord = {
     clientName: string | null;
     durationMins: number;
     status: "open" | "closed";
+    stage: Stage;
   };
   recruiter: {
     id: string;
@@ -81,6 +83,7 @@ export type BookingSummary = {
   candidateEmail: string;
   jobTitle: string | null;
   clientName: string | null;
+  stage: Stage;
   slotStart: string | null;
   slotEnd: string | null;
   inviteExpiresAt: string | null;
@@ -91,6 +94,10 @@ export type InterviewNote = {
   body: string;
   offsetMs: number | null;
   createdAt: string;
+  // Who wrote it: the recruiter, or a client attendee (shown with their name).
+  authorName: string | null;
+  authorKind: "recruiter" | "client" | "other";
+  authorId: string;
 };
 
 export type InterviewRound = {
@@ -101,6 +108,7 @@ export type InterviewRound = {
   clientName: string | null;
   durationMins: number;
   status: "open" | "closed";
+  stage: Stage;
   createdAt: string;
 };
 

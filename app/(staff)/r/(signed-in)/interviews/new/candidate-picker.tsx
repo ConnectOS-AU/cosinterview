@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { DEFAULT_INTERVIEW_LENGTH, INTERVIEW_LENGTHS } from "@/lib/staff/options";
+import { STATUS_BADGE } from "@/lib/staff/status";
+import { isClientStage, STAGES, stageLabel, type Stage } from "@/lib/stages";
+import type { BookingStatus } from "@/lib/types";
 import { createInvitations, type SentInvite } from "../actions";
 import { CopyButton } from "../copy-button";
 
@@ -10,13 +13,16 @@ type Candidate = {
   candidateId: string;
   name: string;
   email: string | null;
+  // JobAdder application status and workflow stage.
   stage: string | null;
   unsubscribed: boolean;
-  invitedLabel: string | null;
+  // Their COSInterview interviews for this job, at each stage.
+  interviews: { stage: Stage; status: BookingStatus }[];
 };
 
 export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string; candidates: Candidate[]; canEmail: boolean }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [stage, setStage] = useState<Stage | "">("");
   const [duration, setDuration] = useState<number>(DEFAULT_INTERVIEW_LENGTH);
   const [sendEmail, setSendEmail] = useState(canEmail);
   const [message, setMessage] = useState("");
@@ -25,11 +31,27 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   const [result, setResult] = useState<{ sent: SentInvite[]; skipped: string[] } | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const selectable = (c: Candidate) => Boolean(c.email) && !c.invitedLabel;
+  // At the chosen stage: candidates who've completed it aren't shown, and ones
+  // already invited to it can't be picked again.
+  const atStage = (c: Candidate) => (stage ? c.interviews.find((i) => i.stage === stage) : undefined);
+  const doneHere = (c: Candidate) => atStage(c)?.status === "completed";
+  const invitedLabel = (c: Candidate) => {
+    const found = atStage(c);
+    return found && found.status !== "completed" ? STATUS_BADGE[found.status].label : null;
+  };
+  const selectable = (c: Candidate) => Boolean(stage) && Boolean(c.email) && !invitedLabel(c);
+  const hiddenCount = candidates.filter(doneHere).length;
   const visible = useMemo(() => {
     const term = filter.trim().toLowerCase();
-    return term ? candidates.filter((c) => `${c.name} ${c.email ?? ""} ${c.stage ?? ""}`.toLowerCase().includes(term)) : candidates;
-  }, [candidates, filter]);
+    const remaining = stage ? candidates.filter((c) => c.interviews.find((i) => i.stage === stage)?.status !== "completed") : candidates;
+    return term ? remaining.filter((c) => `${c.name} ${c.email ?? ""} ${c.stage ?? ""}`.toLowerCase().includes(term)) : remaining;
+  }, [candidates, filter, stage]);
+
+  function chooseStage(next: Stage | "") {
+    setStage(next);
+    setSelected(new Set());
+    setError(null);
+  }
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -43,7 +65,8 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   function submit() {
     setError(null);
     startTransition(async () => {
-      const res = await createInvitations({ jobId, durationMins: duration, candidateIds: [...selected], sendEmail, message });
+      if (!stage) return setError("Pick which interview this is.");
+      const res = await createInvitations({ jobId, durationMins: duration, stage, candidateIds: [...selected], sendEmail, message });
       if (!res.ok) setError(res.error);
       else {
         setResult(res);
@@ -65,6 +88,21 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-4">
+        <label className="text-sm">
+          <span className="mb-1 block font-medium text-neutral-700">Which interview is this?</span>
+          <select
+            value={stage}
+            onChange={(e) => chooseStage(e.target.value as Stage | "")}
+            className={`rounded-md border bg-white px-3 py-2 text-sm ${stage ? "border-neutral-300" : "border-amber-400"}`}
+          >
+            <option value="">Choose…</option>
+            {STAGES.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="text-sm">
           <span className="mb-1 block font-medium text-neutral-700">Interview length</span>
           <select
@@ -90,6 +128,16 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
         </label>
       </div>
 
+      {!stage ? (
+        <p className="text-sm text-amber-700">Choose which interview this is to pick candidates.</p>
+      ) : (
+        <p className="text-xs text-neutral-500">
+          {isClientStage(stage) && "Client attendees (up to 5) are added from the interview page. "}
+          {hiddenCount > 0 &&
+            `${hiddenCount} candidate${hiddenCount === 1 ? " has" : "s have"} already completed ${stageLabel(stage)} and ${hiddenCount === 1 ? "isn't" : "aren't"} shown.`}
+        </p>
+      )}
+
       <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs font-medium uppercase tracking-wide text-neutral-500">
@@ -97,12 +145,15 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
               <th className="w-10 px-4 py-2.5" />
               <th className="px-4 py-2.5">Candidate</th>
               <th className="hidden px-4 py-2.5 sm:table-cell">Email</th>
+              <th className="hidden px-4 py-2.5 md:table-cell">Interviews done</th>
               <th className="px-4 py-2.5">JobAdder status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100">
             {visible.map((c) => {
               const can = selectable(c);
+              const label = invitedLabel(c);
+              const done = c.interviews.filter((i) => i.status === "completed").map((i) => stageLabel(i.stage));
               return (
                 <tr key={c.candidateId} className={can ? "cursor-pointer hover:bg-neutral-50" : "text-neutral-400"} onClick={() => can && toggle(c.candidateId)}>
                   <td className="px-4 py-3">
@@ -118,13 +169,12 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
                   </td>
                   <td className="px-4 py-3">
                     <span className={can ? "font-medium text-neutral-900" : "font-medium"}>{c.name}</span>
-                    {c.invitedLabel && (
-                      <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{c.invitedLabel}</span>
-                    )}
+                    {label && <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{label}</span>}
                     {!c.email && <span className="ml-2 text-xs">No email in JobAdder</span>}
                     {c.unsubscribed && c.email && <span className="ml-2 text-xs text-amber-700">Unsubscribed from marketing</span>}
                   </td>
                   <td className="hidden px-4 py-3 sm:table-cell">{c.email ?? "—"}</td>
+                  <td className="hidden px-4 py-3 text-xs md:table-cell">{done.length ? done.join(", ") : "—"}</td>
                   <td className="whitespace-nowrap px-4 py-3">{c.stage ?? "—"}</td>
                 </tr>
               );

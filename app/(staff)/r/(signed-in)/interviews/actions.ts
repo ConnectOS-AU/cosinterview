@@ -12,7 +12,8 @@ import { requireRecruiter } from "@/lib/staff/auth";
 import { INTERVIEW_LENGTHS } from "@/lib/staff/options";
 import { getJob, listApplications } from "@/lib/staff/jobadder";
 import { logToJobAdder } from "@/lib/staff/jobadder-api";
-import { createInvites, invitesForJob, openInterviewFor, replaceInviteToken } from "@/lib/staff/repo";
+import { createInvites, openInterviewFor, replaceInviteToken, stagesForJob } from "@/lib/staff/repo";
+import { isStage, stageLabel, type Stage } from "@/lib/stages";
 import { newInviteToken } from "@/lib/tokens";
 import type { InviteRecord, NewInvite, RecruiterProfile } from "@/lib/types";
 
@@ -70,6 +71,8 @@ function inviteContent(
 export async function createInvitations(input: {
   jobId: string;
   durationMins: number;
+  // Which interview this is (Screening, Interview 1, Client Interview 1, ...).
+  stage: Stage;
   candidateIds: string[];
   sendEmail: boolean;
   // Optional personal note shown at the top of each invite email.
@@ -80,15 +83,17 @@ export async function createInvitations(input: {
   if (!INTERVIEW_LENGTHS.includes(input.durationMins as (typeof INTERVIEW_LENGTHS)[number])) {
     return { ok: false, error: "Pick an interview length." };
   }
+  if (!isStage(input.stage)) return { ok: false, error: "Pick which interview this is." };
   const ids = [...new Set(input.candidateIds)].slice(0, MAX_PER_BATCH);
   if (ids.length === 0) return { ok: false, error: "Select at least one candidate." };
 
   const job = await getJob(input.jobId);
   if (!job) return { ok: false, error: "That JobAdder job wasn't found." };
 
-  // Only candidates who really applied to this job, have an email, and aren't
-  // already invited.
-  const [applications, existing] = await Promise.all([listApplications(job.jobId), invitesForJob(recruiter.id, job.jobId)]);
+  // Only candidates who really applied to this job, have an email, and haven't
+  // already been invited to (or done) this stage.
+  const [applications, stages] = await Promise.all([listApplications(job.jobId), stagesForJob(job.jobId)]);
+  const atStage = (id: string) => (stages.get(id) ?? []).some((s) => s.stage === input.stage);
   const byCandidate = new Map(applications.map((a) => [a.candidateId, a]));
   const skipped: string[] = [];
   const expiresAt = DateTime.utc().plus({ days: INVITE_DAYS }).endOf("day").toISO()!;
@@ -97,7 +102,7 @@ export async function createInvitations(input: {
   for (const id of ids) {
     const app = byCandidate.get(id);
     if (!app) continue;
-    if (!app.candidateEmail || existing.has(id)) {
+    if (!app.candidateEmail || atStage(id)) {
       skipped.push(app.candidateName);
       continue;
     }
@@ -114,7 +119,7 @@ export async function createInvitations(input: {
   }
   if (invites.length === 0) return { ok: true, sent: [], skipped };
 
-  const interview = await openInterviewFor(recruiter, job, input.durationMins, staff.userId);
+  const interview = await openInterviewFor(recruiter, job, input.durationMins, staff.userId, input.stage);
   const created = await createInvites(recruiter, interview, invites);
   const canEmail = input.sendEmail && mailConfigured();
   const message = input.message?.trim().slice(0, MAX_MESSAGE) || null;
@@ -136,7 +141,7 @@ export async function createInvitations(input: {
       candidateId: invite.candidateId,
       text: note(
         [
-          `Interview invite ${email ? "emailed" : "link created"} via COSInterview for ${job.title}: ${input.durationMins}-minute video interview with ${recruiter.displayName}.`,
+          `${stageLabel(input.stage)} invite ${email ? "emailed" : "link created"} via COSInterview for ${job.title}: ${input.durationMins}-minute video interview with ${recruiter.displayName}.`,
           `Waiting for the candidate to choose a time. The link works until ${inviteExpiry(expiresAt)}.`,
         ].join("\n"),
         email,

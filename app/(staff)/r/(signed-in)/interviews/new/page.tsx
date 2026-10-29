@@ -5,17 +5,17 @@ import { mailConfigured } from "@/lib/mail";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { jobsWithRecruiter } from "@/lib/staff/job-detail";
 import { getJob, listActiveJobs, listApplications } from "@/lib/staff/jobadder";
-import { invitesForJob } from "@/lib/staff/repo";
-import { STATUS_BADGE } from "@/lib/staff/status";
+import { stagesForJob } from "@/lib/staff/repo";
 import type { JobAdderJob } from "@/lib/types";
 import { CandidatePicker } from "./candidate-picker";
+import { ClientSelect } from "./client-select";
 
 export const dynamic = "force-dynamic";
 
-type Props = { searchParams: Promise<{ job?: string; q?: string }> };
+type Props = { searchParams: Promise<{ job?: string; q?: string; client?: string }> };
 
 export default async function NewInterviewPage({ searchParams }: Props) {
-  const { job: jobId, q = "" } = await searchParams;
+  const { job: jobId, q = "", client = "" } = await searchParams;
   return (
     <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
       <div>
@@ -24,14 +24,24 @@ export default async function NewInterviewPage({ searchParams }: Props) {
         </Link>
         <h1 className="mt-1 text-2xl font-semibold text-neutral-900">New interview</h1>
       </div>
-      {jobId ? <ChooseCandidates jobId={jobId} /> : <ChooseJob q={q} />}
+      {jobId ? <ChooseCandidates jobId={jobId} /> : <ChooseJob q={q} client={client} />}
     </main>
   );
 }
 
-async function ChooseJob({ q }: { q: string }) {
+async function ChooseJob({ q, client }: { q: string; client: string }) {
   const { recruiter } = await requireRecruiter();
-  const jobs = await listActiveJobs(q);
+  // Every active job (at most 500), so the client list stays whole while
+  // searching; the search and client filter apply here.
+  const active = await listActiveJobs("");
+  const clients = [...new Set(active.map((j) => j.companyName?.trim()).filter((c): c is string => Boolean(c)))].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
+  const term = q.trim().toLowerCase();
+  const jobs = active.filter(
+    (j) => (!client || j.companyName?.trim() === client) && (!term || `${j.title} ${j.companyName ?? ""}`.toLowerCase().includes(term)),
+  );
+  const filtered = Boolean(term || client);
   const email = recruiter.calendarEmail.toLowerCase();
   // "Your jobs": ones you own in JobAdder, or where you're one of the job's
   // recruiters (read from JobAdder, see lib/staff/job-detail.ts).
@@ -48,23 +58,29 @@ async function ChooseJob({ q }: { q: string }) {
 
   return (
     <>
-      <form className="flex max-w-lg gap-2" action="/r/interviews/new">
+      <form className="flex max-w-3xl flex-wrap gap-2" action="/r/interviews/new">
         <input
           name="q"
           defaultValue={q}
           placeholder="Search job title or client"
-          className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none"
         />
+        <ClientSelect clients={clients} value={client} />
         <button type="submit" className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800">
           Search
         </button>
+        {filtered && (
+          <Link href="/r/interviews/new" className="self-center text-xs font-medium text-neutral-600 underline hover:text-neutral-950">
+            Clear
+          </Link>
+        )}
       </form>
       <p className="text-sm text-neutral-500">Pick the JobAdder job you&apos;re interviewing for. Only open and on-hold jobs are shown.</p>
       <JobList
         title="Your jobs"
         jobs={own}
         roles={roles}
-        empty={q ? "None of your jobs match." : "No open jobs where you're the owner or a recruiter."}
+        empty={filtered ? "None of your jobs match." : "No open jobs where you're the owner or a recruiter."}
       />
       <JobList title="Other active jobs" jobs={others} empty="No other jobs match." />
     </>
@@ -107,10 +123,10 @@ function JobList({ title, jobs, empty, roles }: { title: string; jobs: JobAdderJ
 }
 
 async function ChooseCandidates({ jobId }: { jobId: string }) {
-  const { recruiter } = await requireRecruiter();
+  await requireRecruiter();
   const job = await getJob(jobId);
   if (!job) notFound();
-  const [applications, existing] = await Promise.all([listApplications(job.jobId), invitesForJob(recruiter.id, job.jobId)]);
+  const [applications, stages] = await Promise.all([listApplications(job.jobId), stagesForJob(job.jobId)]);
 
   return (
     <>
@@ -124,17 +140,14 @@ async function ChooseCandidates({ jobId }: { jobId: string }) {
       <CandidatePicker
         jobId={job.jobId}
         canEmail={mailConfigured()}
-        candidates={applications.map((a) => {
-          const status = existing.get(a.candidateId);
-          return {
-            candidateId: a.candidateId,
-            name: a.candidateName,
-            email: a.candidateEmail,
-            stage: [a.statusName, a.stage].filter(Boolean).join(" · ") || null,
-            unsubscribed: a.unsubscribed,
-            invitedLabel: status ? STATUS_BADGE[status].label : null,
-          };
-        })}
+        candidates={applications.map((a) => ({
+          candidateId: a.candidateId,
+          name: a.candidateName,
+          email: a.candidateEmail,
+          stage: [a.statusName, a.stage].filter(Boolean).join(" · ") || null,
+          unsubscribed: a.unsubscribed,
+          interviews: stages.get(a.candidateId) ?? [],
+        }))}
       />
     </>
   );

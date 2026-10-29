@@ -2,6 +2,7 @@ import "server-only";
 import { demoInviteById, demoInvites, demoMode, updateDemoInvite } from "./demo";
 import { seal, unseal } from "./sealed";
 import { supabaseAdmin } from "./supabase/admin";
+import type { Stage } from "./stages";
 import type { BookingStatus, InviteRecord, TimeRange } from "./types";
 
 // Booking/invite access shared by the candidate portal and the recruiter
@@ -13,7 +14,7 @@ const INVITE_SELECT = `
   jobadder_candidate_id, jobadder_application_id,
   slot_start, slot_end, invite_expires_at, daily_room_name, daily_room_url, graph_event_id,
   interview:cos_recruitment_interviews!inner (
-    id, jobadder_job_id, job_title, client_name, duration_mins, status,
+    id, jobadder_job_id, job_title, client_name, duration_mins, status, stage,
     recruiter:cos_recruitment_recruiters!inner (
       id, slug, display_name, title, photo_path, bio, welcome_message, timezone, calendar_email, active
     )
@@ -41,6 +42,7 @@ type Row = {
     client_name: string | null;
     duration_mins: number;
     status: "open" | "closed";
+    stage: Stage;
     recruiter: {
       id: string;
       slug: string;
@@ -80,6 +82,7 @@ function toRecord(row: Row): InviteRecord {
       clientName: interview.client_name,
       durationMins: interview.duration_mins,
       status: interview.status,
+      stage: interview.stage,
     },
     recruiter: {
       id: recruiter.id,

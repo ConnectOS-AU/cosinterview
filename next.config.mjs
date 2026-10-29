@@ -21,6 +21,8 @@ const securityHeaders = [
 const coshubOrigin = process.env.COSHUB_ORIGIN || "https://coshub.connectos.co";
 const staffFrameHeaders = [{ key: "Content-Security-Policy", value: `frame-ancestors 'self' ${coshubOrigin}` }];
 const candidateFrameHeaders = [{ key: "Content-Security-Policy", value: "frame-ancestors 'none'" }];
+// The client lobby frames only its own pages (the resume viewer).
+const guestFrameHeaders = [{ key: "Content-Security-Policy", value: "frame-ancestors 'self'" }];
 
 const nextConfig = {
   experimental: {
@@ -33,6 +35,7 @@ const nextConfig = {
       { source: "/r", headers: staffFrameHeaders },
       { source: "/r/:path*", headers: staffFrameHeaders },
       { source: "/c/:path*", headers: candidateFrameHeaders },
+      { source: "/g/:path*", headers: guestFrameHeaders },
     ];
   },
 };

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getRecording, meetingParticipants, parseTracks, type DailyTrack } from "../daily";
 import { findInviteById } from "../repo";
 import { listNotes } from "../staff/repo";
+import { noteLine, parseCallName } from "../stages";
 import { supabaseAdmin } from "../supabase/admin";
 import { compressForSpeech, downloadTrack } from "./audio";
 import { formatOffset } from "./format";
@@ -106,9 +107,13 @@ async function runPipeline(recordingId: string, work: string): Promise<void> {
   if (tracks.length === 0) throw new Error("No audio tracks on this recording yet.");
 
   const recruiterIds = new Set<string>();
+  // Extra attendees join as "<name> (client)" / "<name> (other)". Their audio
+  // isn't transcribed: the transcript is the recruiter and the candidate.
+  const guestIds = new Set<string>();
   if (daily?.mtgSessionId) {
     for (const p of await meetingParticipants(daily.mtgSessionId)) {
       if (p.userId?.startsWith("recruiter:")) recruiterIds.add(p.participantId.toLowerCase());
+      else if (parseCallName(p.userName).role) guestIds.add(p.participantId.toLowerCase());
     }
   }
   const startMs = rec.data.started_at ? new Date(rec.data.started_at).getTime() : daily?.startTs ? daily.startTs * 1000 : null;
@@ -117,7 +122,8 @@ async function runPipeline(recordingId: string, work: string): Promise<void> {
   let longest = 0;
   for (const [i, track] of tracks.entries()) {
     const { participantId, offsetMs } = trackTiming(track.s3Key, startMs);
-    // Anyone who isn't the recruiter is the candidate (interviews are one-to-one).
+    if (participantId && guestIds.has(participantId)) continue;
+    // Anyone else who isn't the recruiter is the candidate.
     const role: Role = participantId && recruiterIds.has(participantId) ? "recruiter" : "candidate";
 
     const raw = join(work, `track-${i}.webm`);
@@ -181,7 +187,9 @@ async function runPipeline(recordingId: string, work: string): Promise<void> {
       .map((s) => `[${formatOffset(s.start_ms)}] ${s.speaker_role === "recruiter" ? "Recruiter" : "Candidate"}: ${s.text_en}`)
       .join("\n");
     if (transcript) {
-      const notes = (await listNotes(booking.bookingId)).map((n) => n.body);
+      const notes = (await listNotes(booking.bookingId)).map((n) =>
+        noteLine("", n).trim(),
+      );
       const result = await summariseInterview({
         jobTitle: booking.interview.jobTitle,
         clientName: booking.interview.clientName,

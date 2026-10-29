@@ -4,7 +4,8 @@ import type { DailyCall } from "@daily-co/daily-js";
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { InterviewNote } from "@/lib/staff/repo";
-import { finishInterview, joinAsRecruiter, recordingStarted, removeNote, saveNote } from "./actions";
+import { noteLine, parseCallName } from "@/lib/stages";
+import { finishInterview, joinAsRecruiter, loadNotes, noteAttendee, recordingStarted, removeNote, saveNote } from "./actions";
 
 type Phase = "idle" | "joining" | "joined" | "left" | "no_video" | "error";
 type RecordingState = "off" | "starting" | "on" | "failed";
@@ -15,6 +16,8 @@ type Props = {
   candidateName: string;
   canJoin: boolean;
   initialNotes: InterviewNote[];
+  // "[Interview 1 · 30 Oct 2026]", in front of every note.
+  notePrefix: string;
   // Right-hand column beside the video (the job description).
   aside?: ReactNode;
 };
@@ -23,7 +26,7 @@ type Props = {
 // to admit the candidate from the lobby, automatic recording once the candidate
 // is in, timestamped notes under the video, and `aside` (the job description)
 // to the right.
-export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes, aside }: Props) {
+export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes, notePrefix, aside }: Props) {
   const router = useRouter();
   const frameRef = useRef<HTMLDivElement>(null);
   const callRef = useRef<DailyCall | null>(null);
@@ -74,9 +77,13 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
       if (!e) return;
       setWaiting((w) => w.filter((p) => p.id !== e.participant.id));
     });
-    // Start recording as soon as someone other than the recruiter is in the call.
+    // Start recording once the candidate is in (not when a client attendee is
+    // let in early).
     call.on("participant-joined", (e) => {
       if (!e || e.participant.local) return;
+      // Attendance: everyone who comes into the call, once each.
+      void noteAttendee(bookingId, e.participant.user_name ?? "");
+      if (isGuest(e.participant.user_name)) return;
       if (recordingRef.current === "off" || recordingRef.current === "failed") {
         setRecording("starting");
         call.startRecording();
@@ -106,6 +113,11 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
     }
   }
 
+  async function admitAll() {
+    for (const p of waiting) await callRef.current?.updateWaitingParticipant(p.id, { grantRequestedAccess: true });
+    setWaiting([]);
+  }
+
   async function admit(id: string, allow: boolean) {
     await callRef.current?.updateWaitingParticipant(id, { grantRequestedAccess: allow });
     setWaiting((w) => w.filter((p) => p.id !== id));
@@ -126,33 +138,44 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
   return (
     <div className="grid gap-5 lg:grid-cols-3">
       <div className="space-y-3 lg:col-span-2">
-        {waiting.map((p) => (
-          <div
-            key={p.id}
-            role="alert"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3"
-          >
-            <p className="text-sm text-amber-900">
-              <span className="font-semibold">{p.name || candidateName}</span> is waiting in the lobby.
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => admit(p.id, true)}
-                className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800"
-              >
-                Admit
-              </button>
-              <button
-                type="button"
-                onClick={() => admit(p.id, false)}
-                className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
-              >
-                Deny
-              </button>
+        {waiting.length > 0 && (
+          <section role="alert" className="rounded-lg border border-amber-200 bg-amber-50">
+            <div className="flex items-center justify-between gap-3 border-b border-amber-200 px-4 py-2">
+              <p className="text-sm font-semibold text-amber-900">In the lobby</p>
+              {waiting.length > 1 && (
+                <button type="button" onClick={admitAll} className="text-xs font-medium text-amber-900 underline hover:text-amber-950">
+                  Admit everyone
+                </button>
+              )}
             </div>
-          </div>
-        ))}
+            <ul className="divide-y divide-amber-200">
+              {waiting.map((p) => (
+                <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+                  <p className="text-sm text-amber-900">
+                    <span className="font-semibold">{parseCallName(p.name).name || candidateName}</span>{" "}
+                    <span className="text-xs">{parseCallName(p.name).role ?? "candidate"}</span>
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => admit(p.id, true)}
+                      className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800"
+                    >
+                      Admit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => admit(p.id, false)}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+                    >
+                      Deny
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <div className="relative aspect-video overflow-hidden rounded-lg border border-neutral-200 bg-neutral-900">
           <div ref={frameRef} className={inCall ? "absolute inset-0" : "hidden"} />
@@ -222,13 +245,15 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
           )}
         </div>
 
-        <NotesPanel bookingId={bookingId} initialNotes={initialNotes} clockStart={clockStart} />
+        <NotesPanel bookingId={bookingId} initialNotes={initialNotes} clockStart={clockStart} prefix={notePrefix} />
       </div>
 
       {aside && <div className="space-y-5 lg:sticky lg:top-4 lg:self-start">{aside}</div>}
     </div>
   );
 }
+
+const isGuest = (name: string | undefined) => parseCallName(name).role !== null;
 
 function RecordingPill({ state }: { state: RecordingState }) {
   if (state === "on") {
@@ -262,12 +287,22 @@ function NotesPanel({
   bookingId,
   initialNotes,
   clockStart,
+  prefix,
 }: {
   bookingId: string;
   initialNotes: InterviewNote[];
   clockStart: number | null;
+  prefix: string;
 }) {
   const [notes, setNotes] = useState(initialNotes);
+
+  // Client attendees write notes too: pick theirs up every 15 seconds.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadNotes(bookingId).then(setNotes, () => undefined);
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [bookingId]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -311,14 +346,18 @@ function NotesPanel({
     <section className="flex max-h-[30rem] flex-col rounded-lg border border-neutral-200 bg-white">
       <div className="border-b border-neutral-200 px-4 py-3">
         <h2 className="text-sm font-semibold text-neutral-900">Notes</h2>
-        <p className="text-xs text-neutral-500">Only visible to ConnectOS staff. Timed against the recording.</p>
+        <p className="text-xs text-neutral-500">
+          Not shown to the candidate. Timed against the recording, and added to JobAdder when you end the interview.
+        </p>
       </div>
       <ol ref={listRef} className="min-h-[6rem] flex-1 space-y-2 overflow-y-auto px-4 py-3">
         {notes.length === 0 && <li className="text-sm text-neutral-400">No notes yet.</li>}
         {notes.map((n) => (
           <li key={n.id} className="group flex gap-3 text-sm">
             <span className="mt-0.5 w-12 flex-shrink-0 font-mono text-xs text-neutral-400">{formatOffset(n.offsetMs)}</span>
-            <p className="flex-1 whitespace-pre-wrap text-neutral-800">{n.body}</p>
+            <p className="flex-1 whitespace-pre-wrap text-neutral-800">
+              <span className="text-xs text-neutral-400">{noteLine(prefix, { ...n, body: "" }).trim()}</span> {n.body}
+            </p>
             <button
               type="button"
               onClick={() => remove(n.id)}
