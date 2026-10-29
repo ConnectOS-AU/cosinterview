@@ -116,6 +116,9 @@ Accounts and access (IT / admin):
   read-only key for the worker.
 - [ ] **Microsoft Graph**: app registration with the application permission `Calendars.ReadWrite`,
   admin consent, and an **application access policy** limiting it to recruiter mailboxes.
+  Until then, `CALENDAR_OPTIONAL=true` lets candidates book anyway: only times already booked in
+  COSInterview are blocked (not the recruiter's other meetings) and no Outlook entries are made.
+  Without Graph and without this setting, candidate booking pages show an error.
 - [ ] **SendGrid**: COSHub's API key, and a verified sender for `SENDGRID_FROM_EMAIL` (or domain
   authentication for connectos.co). Send one test invite to yourself first.
 - [ ] **Groq** and **Anthropic** API keys.

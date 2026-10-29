@@ -53,14 +53,16 @@ export function publicRecruiter(invite: InviteRecord): PublicRecruiter {
 }
 
 // Open slots for this invite: the recruiter's Outlook free/busy plus anything
-// already booked through the portal. Without Graph credentials (local dev only)
-// the calendar is treated as empty.
+// already booked through the portal. Without Graph credentials (local dev, or
+// production with CALENDAR_OPTIONAL=true until Graph is set up) only portal
+// bookings count, so candidates can pick a time the recruiter has another
+// meeting.
 export async function availableSlots(invite: InviteRecord): Promise<string[]> {
   const { from, to } = bookingWindow();
   const busy = await listRecruiterBookings(invite.recruiter.id, from.toISO()!, to.toISO()!);
   if (graphConfigured()) {
     busy.push(...(await getBusy(invite.recruiter.calendarEmail, from, to)));
-  } else if (process.env.NODE_ENV === "production") {
+  } else if (process.env.NODE_ENV === "production" && process.env.CALENDAR_OPTIONAL !== "true") {
     throw new Error("Microsoft Graph is not configured; cannot read recruiter availability.");
   }
   return freeSlots({
