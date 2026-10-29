@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getStaff } from "@/lib/staff/auth";
 import { listRecruiters, listUpcomingBookings } from "@/lib/staff/repo";
@@ -27,6 +28,9 @@ export default async function AdminPage() {
           Manage recruiters and see everyone&apos;s interviews. <strong>Work as</strong> opens a recruiter&apos;s screens so you
           can set up interviews or edit their profile for them.
         </p>
+        <Link href="/r/admin/lobby" className="mt-3 inline-block rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50">
+          Edit the candidate lobby screen
+        </Link>
       </div>
 
       <section>

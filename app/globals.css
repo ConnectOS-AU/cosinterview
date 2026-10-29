@@ -74,3 +74,38 @@ label {
 body {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Rich text from the admin lobby editor (app/(portal)/lobby-panel.tsx), and the
+   editor itself, so what admins type looks like what candidates see. */
+@layer components {
+  .lobby-html {
+    @apply space-y-3 text-base text-brand-text;
+  }
+  .lobby-html h2 {
+    @apply pt-1 text-xl font-semibold text-brand-ink;
+  }
+  .lobby-html h3 {
+    @apply pt-1 text-lg font-medium text-brand-ink;
+  }
+  .lobby-html h4 {
+    @apply font-medium text-brand-ink;
+  }
+  .lobby-html ul {
+    @apply list-disc space-y-1 pl-5;
+  }
+  .lobby-html ol {
+    @apply list-decimal space-y-1 pl-5;
+  }
+  .lobby-html a {
+    @apply text-brand-teal underline;
+  }
+  .lobby-html blockquote {
+    @apply border-l-4 border-brand-gold/60 pl-4 italic text-brand-muted;
+  }
+  .lobby-html hr {
+    @apply border-brand-line;
+  }
+  .lobby-html img {
+    @apply max-w-full rounded-2xl;
+  }
+}

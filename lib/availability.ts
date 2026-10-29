@@ -7,7 +7,9 @@ export const BOOKING_RULES = {
   dayStartHour: 9,
   dayEndHour: 17,
   stepMins: 30,
-  minNoticeHours: 12,
+  // Same-day bookings are fine; this just stops a candidate booking a time
+  // that starts before the recruiter could see it.
+  minNoticeHours: 1,
   daysAhead: 14,
 };
 

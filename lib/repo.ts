@@ -1,5 +1,6 @@
 import "server-only";
 import { demoInviteById, demoInvites, demoMode, updateDemoInvite } from "./demo";
+import { seal, unseal } from "./sealed";
 import { supabaseAdmin } from "./supabase/admin";
 import type { BookingStatus, InviteRecord, TimeRange } from "./types";
 
@@ -159,11 +160,14 @@ export async function claimSlot(
         i.slotEnd! > fields.slotStart,
     );
     if (clash) return "taken";
-    updateDemoInvite(bookingId, {
+    Object.assign(invite, {
       status: "booked",
       slotStart: fields.slotStart,
       slotEnd: fields.slotEnd,
       candidateTimezone: fields.candidateTimezone,
+      bookedAt: new Date().toISOString(),
+      reminder24hSentAt: null,
+      reminder2hSentAt: null,
     });
     return "ok";
   }
@@ -202,7 +206,17 @@ export async function releaseBooking(
   bookingId: string,
   next: { status: "cancelled" } | { status: "invited"; tokenHash: string; expiresAt: string },
 ): Promise<void> {
-  const cleared = { slotStart: null, slotEnd: null, dailyRoomName: null, dailyRoomUrl: null, graphEventId: null };
+  const cleared = {
+    slotStart: null,
+    slotEnd: null,
+    dailyRoomName: null,
+    dailyRoomUrl: null,
+    graphEventId: null,
+    bookedAt: null,
+    linkToken: null,
+    reminder24hSentAt: null,
+    reminder2hSentAt: null,
+  };
   if (demoMode()) {
     const invite = demoInviteById(bookingId);
     if (!invite) return;
@@ -219,10 +233,131 @@ export async function releaseBooking(
       daily_room_name: null,
       daily_room_url: null,
       graph_event_id: null,
+      booked_at: null,
+      invite_link_sealed: null,
+      reminder_24h_sent_at: null,
+      reminder_2h_sent_at: null,
       ...(next.status === "invited"
         ? { invite_token_hash: next.tokenHash, invite_expires_at: next.expiresAt, recording_consent_at: null }
         : {}),
     })
     .eq("id", bookingId);
   if (error) throw new Error(`Updating booking failed: ${error.message}`);
+}
+
+// --- Reminders ---------------------------------------------------------------
+
+export type ReminderKind = "24h" | "2h";
+
+const REMINDER_COLUMN: Record<ReminderKind, "reminder_24h_sent_at" | "reminder_2h_sent_at"> = {
+  "24h": "reminder_24h_sent_at",
+  "2h": "reminder_2h_sent_at",
+};
+const DEMO_REMINDER_FIELD: Record<ReminderKind, "reminder24hSentAt" | "reminder2hSentAt"> = {
+  "24h": "reminder24hSentAt",
+  "2h": "reminder2hSentAt",
+};
+
+export type ReminderBooking = {
+  invite: InviteRecord;
+  bookedAt: string | null;
+  sent: Record<ReminderKind, boolean>;
+  // The candidate's invite token, if it could be recovered (see lib/sealed.ts).
+  token: string | null;
+};
+
+// Keeps the candidate's link (encrypted) so reminders can include it.
+export async function saveInviteLink(bookingId: string, token: string): Promise<void> {
+  if (demoMode()) {
+    const invite = demoInviteById(bookingId);
+    if (invite) invite.linkToken = token;
+    return;
+  }
+  const sealed = seal(token);
+  if (!sealed) return;
+  const { error } = await supabaseAdmin()
+    .from("cos_recruitment_bookings")
+    .update({ invite_link_sealed: sealed })
+    .eq("id", bookingId);
+  if (error) throw new Error(`Saving invite link failed: ${error.message}`);
+}
+
+// Booked interviews starting in the next `withinHours`.
+export async function listUpcomingForReminders(now: Date, withinHours: number): Promise<ReminderBooking[]> {
+  const until = new Date(now.getTime() + withinHours * 3_600_000).toISOString();
+  if (demoMode()) {
+    return demoInvites()
+      .filter((i) => i.status === "booked" && i.slotStart && i.slotStart > now.toISOString() && i.slotStart <= until)
+      .map((i) => ({
+        invite: i,
+        bookedAt: i.bookedAt ?? null,
+        sent: { "24h": Boolean(i.reminder24hSentAt), "2h": Boolean(i.reminder2hSentAt) },
+        token: i.linkToken ?? null,
+      }));
+  }
+  const { data, error } = await supabaseAdmin()
+    .from("cos_recruitment_bookings")
+    .select(`${INVITE_SELECT}, booked_at, invite_link_sealed, reminder_24h_sent_at, reminder_2h_sent_at`)
+    .eq("status", "booked")
+    .gt("slot_start", now.toISOString())
+    .lte("slot_start", until);
+  if (error) throw new Error(`Reminder lookup failed: ${error.message}`);
+  type ReminderRow = Row & {
+    booked_at: string | null;
+    invite_link_sealed: string | null;
+    reminder_24h_sent_at: string | null;
+    reminder_2h_sent_at: string | null;
+  };
+  return ((data ?? []) as unknown as ReminderRow[]).map((row) => ({
+    invite: toRecord(row),
+    bookedAt: row.booked_at,
+    sent: { "24h": Boolean(row.reminder_24h_sent_at), "2h": Boolean(row.reminder_2h_sent_at) },
+    token: unseal(row.invite_link_sealed),
+  }));
+}
+
+// Marks a reminder as sent, only if nobody else has (so two runs can't both
+// send it). Returns false if it was already taken.
+export async function claimReminder(bookingId: string, kind: ReminderKind): Promise<boolean> {
+  if (demoMode()) {
+    const invite = demoInviteById(bookingId);
+    if (!invite || invite.status !== "booked" || invite[DEMO_REMINDER_FIELD[kind]]) return false;
+    invite[DEMO_REMINDER_FIELD[kind]] = new Date().toISOString();
+    return true;
+  }
+  const column = REMINDER_COLUMN[kind];
+  const { data, error } = await supabaseAdmin()
+    .from("cos_recruitment_bookings")
+    .update({ [column]: new Date().toISOString() })
+    .eq("id", bookingId)
+    .eq("status", "booked")
+    .is(column, null)
+    .select("id");
+  if (error) throw new Error(`Claiming reminder failed: ${error.message}`);
+  return (data ?? []).length > 0;
+}
+
+// Undoes claimReminder after a failed send, so the next run tries again.
+export async function unclaimReminder(bookingId: string, kind: ReminderKind): Promise<void> {
+  if (demoMode()) {
+    const invite = demoInviteById(bookingId);
+    if (invite) invite[DEMO_REMINDER_FIELD[kind]] = null;
+    return;
+  }
+  const { error } = await supabaseAdmin()
+    .from("cos_recruitment_bookings")
+    .update({ [REMINDER_COLUMN[kind]]: null })
+    .eq("id", bookingId);
+  if (error) throw new Error(`Resetting reminder failed: ${error.message}`);
+}
+
+// The encrypted link is only needed until the interview is over.
+export async function forgetOldInviteLinks(now: Date): Promise<void> {
+  if (demoMode()) return;
+  const { error } = await supabaseAdmin()
+    .from("cos_recruitment_bookings")
+    .update({ invite_link_sealed: null })
+    .not("invite_link_sealed", "is", null)
+    .lt("slot_end", new Date(now.getTime() - 86_400_000).toISOString());
+  if (error) throw new Error(`Clearing old invite links failed: ${error.message}`);
 }

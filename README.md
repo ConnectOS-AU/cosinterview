@@ -21,6 +21,8 @@ candidates see it as "ConnectOS Interviews".
    calendar linking to their interview screen, and a confirmation email to the candidate (SendGrid,
    in the recruiter's name) with the time in their zone, the join link and a calendar file
    (.ics attachment plus Google / Outlook.com links). JobAdder gets a note with the chosen time and the confirmation email.
+   Candidates can book the same day, from an hour ahead. They're emailed reminders 24 hours and 2 hours
+   before (skipped if they booked less than an hour before a reminder was due), each noted in JobAdder.
 3. Recruiter and candidate join from their own pages. Daily records each participant's
    audio as a separate track (raw-tracks, into our S3 bucket). The recruiter types
    timestamped notes during the call.
@@ -37,7 +39,8 @@ candidates see it as "ConnectOS Interviews".
 | `/c/<recruiter-slug>/<token>/room` | Interview room. The candidate joins the Daily room **without a meeting token**, so Daily holds them in the lobby; the page shows the ConnectOS waiting screen until the recruiter admits them, then shows the video. |
 | `/c/<recruiter-slug>/<token>/invite.ics` | "Add to calendar" download. |
 
-- Waiting-screen marketing content lives in `content/waiting-room.ts` (placeholder copy marked).
+- The waiting screen's content is edited by admins at `/r/admin/lobby`; `content/waiting-room.ts` holds the
+  default it starts from (placeholder copy - replace it in the editor before go-live).
 - Booking rules (working hours, notice, days ahead) are in `lib/availability.ts`.
 - Recruiter photos come from the public Supabase Storage bucket `recruitment-public`.
 - **Local demo:** with `npm run dev`, open `/c/demo/demo` to click through without any
@@ -57,6 +60,7 @@ Embedded in COSHub's content pane at `https://interviews.connectos.co/r`, styled
 | `/r/profile` | What candidates see: name, title, photo (Supabase Storage `recruitment-public`, 2 MB), welcome message, bio, time zone. |
 | `/r/bookings/<id>` | Interview screen: joins the Daily room as owner, an **Admit / Deny** banner when the candidate is in the lobby, recording starts automatically once the candidate is in, and timestamped notes (timed against the recording) beside the video. End interview / Mark as no-show. Once completed: summary, scores, notes and the English transcript, and **Add summary to JobAdder**. |
 | `/r/admin` | Admins only (`is_admin` on their recruiter profile). Upcoming interviews for every recruiter, the recruiter list (add, deactivate, make admin) and **Work as**: every recruiter screen then runs as that recruiter (their interviews, new interviews, their profile) with a banner and **Back to my account**. Joining an interview while working as someone uses the admin's own name. |
+| `/r/admin/lobby` | Admins only. The candidate lobby screen: headline, rich-text content (visual editor or HTML), optional YouTube/Vimeo video, waiting tips and a button. Live preview; saved HTML is cleaned (no scripts, styles or embeds) before candidates see it. |
 | `/r/login` | Microsoft sign-in (Supabase Auth, Azure provider - same as COSHub). Inside COSHub's frame it opens in a pop-up, because Microsoft's sign-in can't be framed. |
 
 - Access follows COSHub's rule: the person must be an active SCIM-provisioned COSHub user.
@@ -86,7 +90,12 @@ Runs inside the same Next.js server (no separate service):
    (the participant whose Daily `user_id` is `recruiter:<id>`) or candidate.
 5. Claude writes the summary and 1-5 scores from the transcript plus the recruiter's notes.
 6. `POST /api/worker/run` (Bearer `WORKER_SECRET`) retries failed or stuck recordings, up to 3
-   attempts; schedule it every 15 minutes.
+   attempts, and sends candidates' 24-hour and 2-hour interview reminders. Schedule it every 15 minutes
+   on **one** server - without it, no reminders go out.
+
+Reminder links: invite links are looked up by hash, so to put the join link in reminders the token is
+also kept encrypted on the booking (AES-256-GCM, key derived from `SUPABASE_SERVICE_ROLE_KEY`) from
+booking until a day after the interview. If that key is rotated, reminders go out without the link.
 
 Approximate running cost per 30-minute interview: Groq about $0.11 (two 30-minute tracks at its
 per-hour rate), Claude summary a few cents, Daily within its free participant minutes at low volume.
@@ -122,7 +131,8 @@ Accounts and access (IT / admin):
 - [ ] **SendGrid**: COSHub's API key, and a verified sender for `SENDGRID_FROM_EMAIL` (or domain
   authentication for connectos.co). Send one test invite to yourself first.
 - [ ] **Groq** and **Anthropic** API keys.
-- [ ] **Worker schedule**: `POST /api/worker/run` every 15 minutes with `WORKER_SECRET`.
+- [ ] **Worker schedule**: `POST /api/worker/run` every 15 minutes with `WORKER_SECRET`, on one server
+  (recording retries and candidate reminders).
 - [ ] **COSHub**: merge the cosops iframe change, then add a menu item embedding
   `https://interviews.connectos.co/r` (Admin: menu access).
 - [ ] **Recruiter profiles**: an admin adds each recruiter at /r/admin (name and Microsoft email).
@@ -132,7 +142,7 @@ Decisions and content (business):
 
 - [ ] Confirm retention periods (12 months / 90 days) with whoever owns privacy, and the privacy
   policy URL in `lib/site.ts`.
-- [ ] Final marketing copy and video for the waiting room (`content/waiting-room.ts`).
+- [ ] Final marketing copy and video for the waiting room (an admin edits it at /r/admin/lobby).
 - [ ] Booking rules: working hours, notice, days ahead (`lib/availability.ts`).
 
 Test before relying on it:
@@ -155,7 +165,8 @@ Next.js, Tailwind and Supabase, matching `connectos-bi-chat`. The brand theme
 Tables are prefixed `cos_recruitment_` in the ConnectOS Supabase project. Migrations live in
 `db/migrations/`, applied in number order: `001` creates the schema, `002` adds foreign-key
 indexes, `003` hardening (grants, booking function, photo bucket, retention job), `004` the
-worker queue functions and `005` recruiter admins (with Simon as the first admin). All five are
+worker queue functions, `005` recruiter admins (with Simon as the first admin) and `006` reminders
+(booking time, encrypted link, sent flags) plus the settings table for the lobby screen. All six are
 applied to the ConnectOS Database project.
 
 ## Local setup
