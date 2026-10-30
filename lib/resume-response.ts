@@ -39,7 +39,7 @@ export function demoResume(candidateName: string, fileName: string): Response {
 
 export async function resumeResponse(file: ResumeFile): Promise<Response> {
   const safeName = file.fileName.replace(/[^\w. -]/g, "_");
-  if (file.isPdf) {
+  if (file.format === "pdf") {
     return new Response(new Uint8Array(file.bytes), {
       headers: {
         "Content-Type": "application/pdf",
@@ -50,7 +50,7 @@ export async function resumeResponse(file: ResumeFile): Promise<Response> {
     });
   }
   try {
-    if (/\.docx$/i.test(file.fileName) || file.contentType.includes("wordprocessingml")) {
+    if (file.format === "docx") {
       const { value } = await mammoth.convertToHtml({ buffer: file.bytes });
       const clean = sanitizeHtml(value, {
         allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img", "h1", "h2"]),
@@ -59,11 +59,11 @@ export async function resumeResponse(file: ResumeFile): Promise<Response> {
       });
       return resumePage(safeName, clean);
     }
-    if (/\.txt$/i.test(file.fileName) || file.contentType.startsWith("text/")) {
+    if (file.format === "text") {
       return resumePage(safeName, `<pre style="white-space:pre-wrap;font-family:inherit">${escape(file.bytes.toString("utf8"))}</pre>`);
     }
   } catch (err) {
     console.error("[resume] Conversion failed", file.fileName, err);
   }
-  return resumeNotice(`${file.fileName} can't be shown in the browser.`);
+  return resumeNotice(`${file.fileName} can't be shown in the browser - resumes need to be PDF or Word (.docx).`);
 }

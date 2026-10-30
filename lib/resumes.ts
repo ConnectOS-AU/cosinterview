@@ -25,7 +25,8 @@ export type ResumeVersion = {
   readable: boolean;
 };
 
-export type ResumeFile = { fileName: string; bytes: Buffer; contentType: string; isPdf: boolean };
+export type ResumeFormat = "pdf" | "docx" | "text";
+export type ResumeFile = { fileName: string; bytes: Buffer; contentType: string; format: ResumeFormat | null };
 
 type Attachment = Record<string, unknown>;
 
@@ -35,6 +36,24 @@ const nameOf = (a: Attachment) => str(a.fileName ?? a.name ?? a.filename);
 const dateOf = (a: Attachment) => str(a.createdAt ?? a.dateCreated ?? a.updatedAt ?? a.dateUpdated) || null;
 
 const READABLE = /\.(pdf|docx|txt)$/i;
+const READABLE_TYPE = /pdf|wordprocessingml|^text\//i;
+const typeOf = (a: Attachment) => str(a.contentType ?? a.mimeType ?? a.fileType ?? a.mediaType);
+// By file name or the content type JobAdder lists. A file with neither (no
+// extension, generic type) is still tried: its format is read from its bytes.
+const readableAttachment = (a: Attachment) => READABLE.test(nameOf(a)) || READABLE_TYPE.test(typeOf(a)) || !/\.\w{2,5}$/.test(nameOf(a));
+
+// What a downloaded resume is, from its first bytes, then its content type and
+// name: PDFs start "%PDF-"; Word (.docx) files are zip archives ("PK"). The old
+// Word format (.doc) isn't supported.
+export function resumeFormat(fileName: string, contentType: string, bytes: Buffer): ResumeFormat | null {
+  const head = bytes.subarray(0, 5).toString("latin1");
+  if (head === "%PDF-") return "pdf";
+  if (head.startsWith("PK\x03\x04")) return /\.(xlsx|pptx|zip)$/i.test(fileName) ? null : "docx";
+  if (contentType.includes("pdf") || /\.pdf$/i.test(fileName)) return "pdf";
+  if (contentType.includes("wordprocessingml") || /\.docx$/i.test(fileName)) return "docx";
+  if (contentType.startsWith("text/plain") || /\.txt$/i.test(fileName)) return "text";
+  return null;
+}
 
 const DEMO_VERSIONS: ResumeVersion[] = [
   { id: "demo-formatted", fileName: "ConnectOS formatted resume.pdf", formatted: true, createdAt: "2026-10-20T02:00:00Z", byType: true, readable: true },
@@ -63,7 +82,7 @@ export async function listResumeVersions(candidateId: string): Promise<{ version
         formatted: /formatted/.test(kindOf(a)) || /formatted/i.test(nameOf(a)),
         createdAt: dateOf(a),
         byType: /resume|cv/.test(kindOf(a)),
-        readable: READABLE.test(nameOf(a)),
+        readable: readableAttachment(a),
       }),
     )
     .sort((a, b) => (Date.parse(b.createdAt ?? "") || 0) - (Date.parse(a.createdAt ?? "") || 0));
@@ -77,8 +96,7 @@ export async function listResumeVersions(candidateId: string): Promise<{ version
 
 export async function downloadResumeVersion(candidateId: string, version: ResumeVersion): Promise<ResumeFile> {
   const file = await jobAdderGetFile(`/candidates/${candidateId}/attachments/${encodeURIComponent(version.id)}`, MAX_RESUME_BYTES);
-  const isPdf = file.contentType === "application/pdf" || /\.pdf$/i.test(version.fileName) || file.bytes.subarray(0, 5).toString() === "%PDF-";
-  return { fileName: version.fileName, ...file, isPdf };
+  return { fileName: version.fileName, ...file, format: resumeFormat(version.fileName, file.contentType, file.bytes) };
 }
 
 // The resume the pre-interview review reads: the newest readable one.

@@ -76,14 +76,13 @@ async function findResume(candidateId: string): Promise<{ resume: Resume | null;
     console.error("[review] Resume download failed", candidateId, fileName, err);
     return { resume: null, problem: `Couldn't download the resume (${fileName}) from JobAdder.` };
   }
-  const { isPdf } = file;
   try {
-    if (isPdf) return { resume: { kind: "pdf", fileName, base64: file.bytes.toString("base64") }, problem: null };
-    if (/\.docx$/i.test(fileName) || file.contentType.includes("wordprocessingml")) {
+    if (file.format === "pdf") return { resume: { kind: "pdf", fileName, base64: file.bytes.toString("base64") }, problem: null };
+    if (file.format === "docx") {
       const { value } = await mammoth.extractRawText({ buffer: file.bytes });
       return textResume(fileName, value);
     }
-    if (/\.txt$/i.test(fileName) || file.contentType.startsWith("text/")) return textResume(fileName, file.bytes.toString("utf8"));
+    if (file.format === "text") return textResume(fileName, file.bytes.toString("utf8"));
     return { resume: null, problem: `The resume (${fileName}) is in a format that can't be read automatically - PDF or Word (.docx) only.` };
   } catch (err) {
     console.error("[review] Resume couldn't be read", candidateId, fileName, err);
