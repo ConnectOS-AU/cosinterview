@@ -63,9 +63,19 @@ export async function getJob(jobId: string): Promise<JobAdderJob | null> {
   return data ? toJob(data as JobRow) : null;
 }
 
-// Every application on the job that's still active in JobAdder.
+// Candidates who can be interviewed: at Screening or a later stage. New
+// applications aren't screened yet; failed, withdrawn and declined ones have no
+// workflow stage in JobAdder (and their status says so); deleted ones aren't
+// active.
+function interviewable(stage: string | null, statusName: string | null): boolean {
+  if (!stage || stage === "New") return false;
+  return !/failed|withdrawn|withrawn|declined/i.test(statusName ?? "");
+}
+
+// Every application on the job that's still active in JobAdder and at
+// Screening or beyond.
 export async function listApplications(jobId: string): Promise<JobAdderApplication[]> {
-  if (demoMode()) return DEMO_APPLICATIONS[jobId] ?? [];
+  if (demoMode()) return (DEMO_APPLICATIONS[jobId] ?? []).filter((a) => interviewable(a.stage, a.statusName));
   const { data, error } = await supabaseAdmin()
     .from("ja_applications")
     .select(
@@ -73,10 +83,12 @@ export async function listApplications(jobId: string): Promise<JobAdderApplicati
     )
     .eq("job_id", jobId)
     .eq("status_active", true)
+    .not("workflow_stage", "is", null)
+    .neq("workflow_stage", "New")
     .order("updated_at", { ascending: false })
     .limit(500);
   if (error) throw new Error(`Application list failed: ${error.message}`);
-  return (data ?? []).map((row) => ({
+  return (data ?? []).filter((row) => interviewable(row.workflow_stage, row.status_name)).map((row) => ({
     applicationId: String(row.application_id),
     candidateId: String(row.candidate_id),
     candidateName:

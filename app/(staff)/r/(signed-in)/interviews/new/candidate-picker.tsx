@@ -80,7 +80,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   if (candidates.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-neutral-300 bg-white px-4 py-6 text-center text-sm text-neutral-500">
-        Nobody has an active application on this job in JobAdder yet.
+        Nobody on this job is at Screening or beyond in JobAdder yet. New applications appear here once they move to Screening.
       </p>
     );
   }
