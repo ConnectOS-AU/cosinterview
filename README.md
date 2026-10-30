@@ -49,6 +49,9 @@ candidates see it as "ConnectOS Interviews".
   the booking confirmation, 24h and 2h reminders, a moved interview and a cancellation go there as well as
   by email, and the JobAdder note says what was sent where. Numbers typed as 09xx are taken as Philippine
   (+63); others need their + and country code. Until Infobip is set up, messages are logged, not sent.
+  The fields start filled in, for the candidate to check, change or clear: a number their resume labels
+  WhatsApp or Viber (Word/text resumes searched directly, PDFs read by Claude Haiku), otherwise the mobile on
+  their JobAdder profile (`ja_candidates.mobile`). See `lib/candidate-numbers.ts`.
 - Recruiter photos come from the public Supabase Storage bucket `recruitment-public`.
 - **Local demo:** with `npm run dev`, open `/c/demo/demo` to click through without any
   credentials (`?reset=1` starts it again). The demo is disabled in production.
