@@ -210,8 +210,9 @@ export function reminderEmail(
   return { subject, bodyHtml, text };
 }
 
-// A client attendee's invitation to a client interview, with their personal
-// link to the client lobby (candidate's resume, job description, notes).
+// An attendee's invitation (client or Other), with their personal link to the
+// attendee lobby. The candidate's formatted resume goes with it as an
+// attachment when there is one, and the job description is in the email.
 export function guestInviteEmail(
   input: Sender & {
     guestName: string | null;
@@ -220,6 +221,9 @@ export function guestInviteEmail(
     stage: string;
     when: string | null;
     link: string;
+    resumeAttached: boolean;
+    // Cleaned HTML from JobAdder, and the same as plain text.
+    jobDescription: { html: string; text: string } | null;
   },
 ): EmailContent {
   const hi = input.guestName ? `Hi ${firstName(input.guestName)},` : "Hi,";
@@ -233,18 +237,35 @@ export function guestInviteEmail(
 <div ${WRAP}>
   <p>${hi}</p>
   <p>You're invited to the ${escape(input.stage)} with ${escape(input.candidateName)}${role}${when}.</p>
-  <p>Your link below opens your waiting room, with the candidate's resume and the job description to read beforehand and a place to keep notes. When it's time, I'll bring you into the video call - it runs in your web browser, so there's nothing to install.</p>
+  <p>${docsLine(input, true)}</p>
+  <p>Your link below opens your waiting room, with the resume and job description there too and a place to keep notes. When it's time, I'll bring you into the video call - it runs in your web browser, so there's nothing to install.</p>
   <p style="margin:28px 0"><a href="${escape(input.link)}" ${BUTTON}>Open your interview room</a></p>
   <p ${MUTED}>This link is personal to you - please don't forward it. If the button doesn't work, copy this address into your browser:<br><span style="word-break:break-all">${escape(input.link)}</span></p>
   ${signature(input)}
+  ${
+    input.jobDescription
+      ? `<hr style="border:none;border-top:1px solid #e4e7eb;margin:28px 0 20px">
+  <p style="font-size:13px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:#52606d">Job description${input.jobTitle ? ` - ${escape(input.jobTitle)}` : ""}</p>
+  <div style="font-size:14px">${input.jobDescription.html}</div>`
+      : ""
+  }
 </div>`.trim();
   const text = [
     input.guestName ? `Hi ${first(input.guestName)},` : "Hi,",
     `You're invited to the ${input.stage} with ${input.candidateName}${plainRole}${plainWhen}.`,
-    "Your link opens your waiting room, with the candidate's resume and the job description to read beforehand and a place to keep notes. When it's time, I'll bring you into the video call (it runs in your web browser - nothing to install):",
+    docsLine(input, false),
+    "Your link opens your waiting room, with the resume and job description there too and a place to keep notes. When it's time, I'll bring you into the video call (it runs in your web browser - nothing to install):",
     input.link,
     "This link is personal to you - please don't forward it.",
     textSignature(input),
+    ...(input.jobDescription ? [`---\n\nJOB DESCRIPTION${input.jobTitle ? ` - ${input.jobTitle}` : ""}\n\n${input.jobDescription.text}`] : []),
   ].join("\n\n");
   return { subject, bodyHtml, text };
+}
+
+// What came with the invitation, so the attendee knows where to look.
+function docsLine(input: { candidateName: string; resumeAttached: boolean; jobDescription: unknown }, html: boolean): string {
+  const name = html ? escape(first(input.candidateName)) : first(input.candidateName);
+  const resume = input.resumeAttached ? `${name}'s resume is attached` : `${name}'s resume will be in your waiting room once it's ready`;
+  return input.jobDescription ? `${resume}, and the job description is below.` : `${resume}.`;
 }

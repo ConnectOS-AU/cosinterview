@@ -7,7 +7,8 @@ import { demoMode } from "./demo";
 // through a tracking redirect. In the local demo (or EMAIL_DRY_RUN=true) the
 // email is logged instead of sent.
 
-export type MailAttachment = { filename: string; contentType: string; content: string };
+// Text content (a calendar file) or a file's bytes (a resume).
+export type MailAttachment = { filename: string; contentType: string; content: string | Buffer };
 
 export type CandidateMail = {
   to: { name: string; email: string };
@@ -48,7 +49,7 @@ export async function sendCandidateMail(mail: CandidateMail): Promise<void> {
       ],
       ...(mail.attachments?.length && {
         attachments: mail.attachments.map((a) => ({
-          content: Buffer.from(a.content, "utf8").toString("base64"),
+          content: (Buffer.isBuffer(a.content) ? a.content : Buffer.from(a.content, "utf8")).toString("base64"),
           filename: a.filename,
           type: a.contentType,
           disposition: "attachment",

@@ -5,9 +5,11 @@ import { after } from "next/server";
 import { attendanceLine, listAttendees, recordAttendee } from "@/lib/attendance";
 import { isClientStage, noteLine, parseCallName, stageLabel, stagePrefix, type GuestRole } from "@/lib/stages";
 import { formatSlot, guestInviteEmail } from "@/lib/emails";
-import { addGuest, guestDisplayName, listGuests, markGuestInvited, newGuestLink, removeGuest, setClientResumeId, type Guest } from "@/lib/guests";
-import { listResumeVersions } from "@/lib/resumes";
-import { sendCandidateMail } from "@/lib/mail";
+import { addGuest, clientResumeId, guestDisplayName, listGuests, markGuestInvited, newGuestLink, removeGuest, setClientResumeId, type Guest } from "@/lib/guests";
+import { getJobDescription } from "@/lib/job-description";
+import { downloadResumeVersion, listResumeVersions, versionForClient } from "@/lib/resumes";
+import { sendCandidateMail, type MailAttachment } from "@/lib/mail";
+import { htmlToText } from "@/lib/review-inputs";
 import { runDebrief } from "@/lib/candidate-debrief";
 import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { createOwnerToken } from "@/lib/daily";
@@ -172,8 +174,38 @@ async function ownOpenBooking(bookingId: string) {
   return own;
 }
 
-// Emails the attendee their link in the recruiter's name. Returns whether it went.
+const RESUME_TYPE = { pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", text: "text/plain" } as const;
+
+// The formatted resume attendees may see (never an original), as an email
+// attachment. Null when there's none yet or it couldn't be downloaded - the
+// email then says it'll be in their waiting room.
+async function clientResumeAttachment(invite: Awaited<ReturnType<typeof ownBooking>>["invite"]): Promise<MailAttachment | null> {
+  const [{ versions }, chosen] = await Promise.all([listResumeVersions(invite.jobadderCandidateId), clientResumeId(invite.bookingId)]);
+  const version = versionForClient(versions, chosen);
+  if (!version) return null;
+  if (demoMode()) return { filename: version.fileName, contentType: RESUME_TYPE.pdf, content: Buffer.from("%PDF-demo") };
+  try {
+    const file = await downloadResumeVersion(invite.jobadderCandidateId, version);
+    if (!file.format) return null;
+    const ext = { pdf: ".pdf", docx: ".docx", text: ".txt" }[file.format];
+    const base = `${invite.candidateName} - resume`.replace(/[^\w. -]/g, "_");
+    return { filename: `${base}${ext}`, contentType: RESUME_TYPE[file.format], content: file.bytes };
+  } catch (err) {
+    console.error("[guest email] Resume download failed", invite.bookingId, err);
+    return null;
+  }
+}
+
+// Emails the attendee their link in the recruiter's name, with the formatted
+// resume attached and the job description. Returns whether it went.
 async function emailGuest(invite: Awaited<ReturnType<typeof ownBooking>>["invite"], guest: Guest, link: string): Promise<boolean> {
+  const [resume, jobHtml] = await Promise.all([
+    clientResumeAttachment(invite),
+    getJobDescription(invite.interview.jobadderJobId).catch((err) => {
+      console.error("[guest email] Job description failed", invite.bookingId, err);
+      return null;
+    }),
+  ]);
   const content = guestInviteEmail({
     guestName: guest.name,
     candidateName: invite.candidateName,
@@ -181,6 +213,8 @@ async function emailGuest(invite: Awaited<ReturnType<typeof ownBooking>>["invite
     stage: stageLabel(invite.interview.stage),
     when: invite.slotStart && invite.slotEnd ? formatSlot(invite.slotStart, invite.slotEnd, invite.recruiter.timezone) : null,
     link,
+    resumeAttached: Boolean(resume),
+    jobDescription: jobHtml ? { html: jobHtml, text: htmlToText(jobHtml.replace(/<li[^>]*>/gi, "$&- ")) } : null,
     recruiterName: invite.recruiter.displayName,
     recruiterTitle: invite.recruiter.title,
   });
@@ -191,6 +225,7 @@ async function emailGuest(invite: Awaited<ReturnType<typeof ownBooking>>["invite
       subject: content.subject,
       html: content.bodyHtml,
       text: content.text,
+      ...(resume && { attachments: [resume] }),
     });
     await markGuestInvited(guest.id);
     return true;
