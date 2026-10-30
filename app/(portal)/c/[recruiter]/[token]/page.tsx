@@ -98,13 +98,21 @@ function Welcome({ invite, recruiter }: { invite: InviteRecord; recruiter: Publi
       </div>
       <div className="flex gap-4 rounded-2xl border border-brand-line bg-brand-sunken p-4">
         <RecruiterAvatar recruiter={recruiter} />
-        <div className="min-w-0 space-y-1.5">
+        <div className="min-w-0 space-y-3">
           <p className="font-medium text-brand-ink">
             {recruiter.displayName}
             {recruiter.title && <span className="font-normal text-brand-muted"> &middot; {recruiter.title}</span>}
           </p>
-          {recruiter.welcomeMessage && <p className="text-sm text-brand-text">{recruiter.welcomeMessage}</p>}
-          {recruiter.bio && <p className="text-sm text-brand-muted">{recruiter.bio}</p>}
+          <div>
+            <h2 className="text-sm font-semibold text-brand-ink">Welcome {firstName}</h2>
+            {recruiter.welcomeMessage && <p className="mt-0.5 whitespace-pre-line text-sm text-brand-text">{recruiter.welcomeMessage}</p>}
+          </div>
+          {recruiter.bio && (
+            <div>
+              <h3 className="text-sm font-semibold text-brand-ink">About me</h3>
+              <p className="mt-0.5 whitespace-pre-line text-sm text-brand-muted">{recruiter.bio}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
