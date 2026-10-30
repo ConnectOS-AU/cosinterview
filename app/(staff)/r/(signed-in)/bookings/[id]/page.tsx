@@ -6,7 +6,6 @@ import { getCandidateReview } from "@/lib/candidate-review";
 import { getLinkedinCheck, linkedinUrlFor } from "@/lib/linkedin-check";
 import { clientResumeId, listGuests } from "@/lib/guests";
 import { listResumeVersions } from "@/lib/resumes";
-import { getJobDescription } from "@/lib/job-description";
 import { mailConfigured } from "@/lib/mail";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
@@ -34,9 +33,8 @@ export default async function BookingPage({ params }: Props) {
 
   const live = invite.status !== "completed";
   const clientStage = isClientStage(invite.interview.stage);
-  const [notes, jobDescription, review, guests, resumes, resumeChoice, attendees, linkedinUrl, linkedinCheck] = await Promise.all([
+  const [notes, review, guests, resumes, resumeChoice, attendees, linkedinUrl, linkedinCheck] = await Promise.all([
     listNotes(invite.bookingId),
-    live ? getJobDescription(invite.interview.jobadderJobId) : null,
     live ? getCandidateReview(invite.bookingId) : null,
     listGuests(invite.bookingId),
     listResumeVersions(invite.jobadderCandidateId),
@@ -53,7 +51,7 @@ export default async function BookingPage({ params }: Props) {
       : "Not booked yet";
 
   return (
-    <main className="mx-auto max-w-6xl space-y-5 px-6 py-6">
+    <main className="space-y-5 px-4 py-6 lg:px-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/r" className="text-xs font-medium text-neutral-500 hover:text-neutral-800">
@@ -121,8 +119,6 @@ export default async function BookingPage({ params }: Props) {
           aside={
             <InterviewAside
               bookingId={invite.bookingId}
-              jobTitle={invite.interview.jobTitle}
-              jobHtml={jobDescription}
               questions={review?.review?.questions ?? null}
               reviewStatus={review?.status ?? "none"}
             />

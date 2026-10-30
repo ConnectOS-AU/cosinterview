@@ -45,7 +45,7 @@ export function GuestRoom(props: Props) {
 
   return (
     <div className="min-h-dvh bg-brand-bg">
-      <div className="mx-auto max-w-7xl px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-5 sm:px-6">
+      <div className="px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-5 sm:px-6">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <BrandLogo className="-ml-3 h-10 w-auto" />
           <div className="text-right">
@@ -58,12 +58,12 @@ export function GuestRoom(props: Props) {
           </div>
         </header>
 
-        <div className="mt-5 grid gap-5 lg:grid-cols-5">
-          <div className="space-y-5 lg:col-span-3">
+        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_26rem]">
+          <div className="min-w-0 space-y-5">
             <VideoArea token={token} guestName={guestName} recruiter={recruiter} opensAt={opensAt} finished={finished} zone={zone} />
             <NotesPanel token={token} guestName={guestName} notePrefix={notePrefix} initialNotes={initialNotes} finished={finished} />
           </div>
-          <div className="space-y-3 lg:col-span-2">
+          <div className="space-y-3">
             {screen.popped ? (
               <section className="space-y-3 rounded-2xl border border-dashed border-brand-line bg-brand-surface px-5 py-6 text-sm text-brand-muted">
                 <p>The resume and job description are open in their own window, on your second screen.</p>
@@ -78,8 +78,16 @@ export function GuestRoom(props: Props) {
               </section>
             ) : (
               <>
-                <div className="flex items-center justify-end gap-3">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   {screen.error && <span className="text-xs text-red-600">{screen.error}</span>}
+                  <a
+                    href={`/g/${token}/job`}
+                    target="_blank"
+                    rel="noopener"
+                    className="rounded-lg border border-brand-line bg-brand-surface px-3 py-1.5 text-xs font-medium text-brand-ink hover:bg-brand-teal-tint"
+                  >
+                    Job description ↗
+                  </a>
                   <button
                     type="button"
                     onClick={screen.open}
@@ -89,7 +97,7 @@ export function GuestRoom(props: Props) {
                     Move to second screen ⧉
                   </button>
                 </div>
-                <CandidateDocs token={token} candidateName={candidateName} jobTitle={jobTitle} jobHtml={jobHtml} height="h-[34rem] lg:h-[calc(100vh-11rem)]" />
+                <CandidateDocs token={token} candidateName={candidateName} jobTitle={jobTitle} jobHtml={jobHtml} height="h-[34rem] lg:h-[calc(100dvh-9rem)]" resumeOnly />
               </>
             )}
           </div>
@@ -217,7 +225,8 @@ function VideoArea({
   }
 
   return (
-    <section className="relative aspect-video w-full overflow-hidden rounded-2xl border border-brand-line bg-brand-surface shadow-card">
+    // As wide as the column allows, but never taller than the window.
+    <section className="relative aspect-video max-h-[calc(100dvh-6rem)] min-h-[18rem] w-full overflow-hidden rounded-2xl border border-brand-line bg-brand-surface shadow-card">
       {/* The Daily frame stays mounted (camera permission and the lobby
           connection carry on) but shows only once the attendee is admitted. */}
       <div ref={frameRef} className={inCall ? "absolute inset-0 bg-black" : "pointer-events-none absolute inset-0 opacity-0"} aria-hidden={!inCall} />
