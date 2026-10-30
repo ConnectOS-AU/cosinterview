@@ -1,11 +1,11 @@
 "use client";
 
 import { DateTime } from "luxon";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
 import { PRIVACY_POLICY_URL } from "@/lib/site";
-import { bookInterview } from "./actions";
+import { bookInterview, suggestedNumbers } from "./actions";
 
 type Props = {
   recruiterSlug: string;
@@ -26,6 +26,31 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
   const [consent, setConsent] = useState(false);
   const [whatsapp, setWhatsapp] = useState("");
   const [viber, setViber] = useState("");
+  // Where filled-in numbers came from, for the note under the fields.
+  const [prefilled, setPrefilled] = useState<string | null>(null);
+  const touched = useRef(false);
+
+  // Fill in numbers from the candidate's profile and resume (looked up in the
+  // background), unless they've already started typing.
+  useEffect(() => {
+    let live = true;
+    suggestedNumbers(recruiterSlug, token)
+      .then((s) => {
+        if (!live || touched.current || (!s.whatsapp && !s.viber)) return;
+        setWhatsapp(s.whatsapp ?? "");
+        setViber(s.viber ?? "");
+        setPrefilled(s.from.length === 2 ? "your profile and resume" : s.from[0] === "resume" ? "your resume" : "your profile");
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [recruiterSlug, token]);
+
+  const edit = (set: (v: string) => void) => (v: string) => {
+    touched.current = true;
+    set(v);
+  };
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -121,21 +146,26 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
               <span className="text-brand-faint">(optional)</span>
             </legend>
             <div className="grid gap-3 sm:grid-cols-2">
-              <PhoneField id="whatsapp" label="WhatsApp number" value={whatsapp} onChange={setWhatsapp} />
+              <PhoneField id="whatsapp" label="WhatsApp number" value={whatsapp} onChange={edit(setWhatsapp)} />
               <PhoneField
                 id="viber"
                 label="Viber number"
                 value={viber}
-                onChange={setViber}
+                onChange={edit(setViber)}
                 action={
                   whatsapp.trim() && viber !== whatsapp ? (
-                    <button type="button" onClick={() => setViber(whatsapp)} className="text-xs text-brand-teal underline">
+                    <button type="button" onClick={() => edit(setViber)(whatsapp)} className="text-xs text-brand-teal underline">
                       Same as WhatsApp
                     </button>
                   ) : null
                 }
               />
             </div>
+            {prefilled && (
+              <p className="text-xs text-brand-muted">
+                We&apos;ve filled these in from {prefilled}. Please check they&apos;re right - change or clear them if not.
+              </p>
+            )}
             <p className="text-xs text-brand-faint">Include your country code if you&apos;re outside the Philippines, e.g. +61 412 345 678.</p>
           </fieldset>
           <label className="flex items-start gap-3 text-sm text-brand-text">

@@ -23,6 +23,7 @@ import { allowRequest } from "@/lib/rate-limit";
 import { claimSlot, saveCandidateNumbers, saveGraphEvent, saveInviteLink } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
 import { runCandidateReview } from "@/lib/candidate-review";
+import { suggestNumbers, type SuggestedNumbers } from "@/lib/candidate-numbers";
 import { logToJobAdder } from "@/lib/staff/jobadder-api";
 import type { InviteRecord } from "@/lib/types";
 
@@ -34,6 +35,21 @@ async function clientKey(action: string): Promise<string> {
 
 function validTimezone(tz: string): boolean {
   return DateTime.local().setZone(tz).isValid;
+}
+
+// Numbers to fill in on the booking screen (from the candidate's JobAdder
+// profile and resume), for them to check. Only before they've booked.
+export async function suggestedNumbers(recruiter: string, token: string): Promise<SuggestedNumbers> {
+  const none: SuggestedNumbers = { whatsapp: null, viber: null, from: [] };
+  if (!allowRequest(await clientKey("numbers"), 10, 60_000)) return none;
+  const invite = await loadInvite(recruiter, token);
+  if (!invite || invite.status !== "invited" || inviteExpired(invite)) return none;
+  try {
+    return await suggestNumbers(invite);
+  } catch (err) {
+    console.error("[numbers]", invite.bookingId, err);
+    return none;
+  }
 }
 
 export type BookResult = { ok: true } | { ok: false; error: string; refresh?: boolean };
