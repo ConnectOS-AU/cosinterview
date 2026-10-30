@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { googleCalendarUrl, icsFile, outlookCalendarUrl } from "@/lib/calendar";
 import { demoMode } from "@/lib/demo";
-import { bookingConfirmationEmail, formatSlot, recruiterEventBody } from "@/lib/emails";
+import { bookingConfirmationEmail, candidateVars, formatSlot, messageText, recruiterEventBody } from "@/lib/emails";
 import { createInterviewEvent, graphConfigured } from "@/lib/graph";
 import {
   availableSlots,
@@ -156,7 +156,7 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
   let emailNote: string | null = null;
   if (mailConfigured()) {
     try {
-      const content = bookingConfirmationEmail({
+      const content = await bookingConfirmationEmail({
         candidateName: booked.candidateName,
         recruiterName: recruiter.displayName,
         recruiterTitle: recruiter.title,
@@ -185,11 +185,12 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
   // ...and on WhatsApp / Viber, if they gave their numbers.
   const messageNote = await messageCandidate(
     { whatsapp: booked.candidateWhatsapp, viber: booked.candidateViber },
-    [
-      `Hi ${booked.candidateName.split(" ")[0]}, your ConnectOS interview${interview.jobTitle ? ` for ${interview.jobTitle}` : ""} with ${recruiter.displayName} is booked for ${candidateWhen}.`,
-      `Join the video call here (it opens 15 minutes before): ${event.url}`,
-      `To see or change your booking: ${bookingPage}`,
-    ].join("\n"),
+    await messageText("msgConfirmation", {
+      ...candidateVars({ candidateName: booked.candidateName, jobTitle: interview.jobTitle, recruiterName: recruiter.displayName, recruiterTitle: recruiter.title }),
+      when: candidateWhen,
+      roomLink: event.url,
+      bookingPage,
+    }),
   );
 
   // 3. JobAdder: the time the candidate chose, and the confirmation they got.

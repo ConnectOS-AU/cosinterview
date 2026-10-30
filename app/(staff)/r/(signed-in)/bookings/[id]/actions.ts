@@ -206,7 +206,7 @@ async function emailGuest(invite: Awaited<ReturnType<typeof ownBooking>>["invite
       return null;
     }),
   ]);
-  const content = guestInviteEmail({
+  const content = await guestInviteEmail({
     guestName: guest.name,
     candidateName: invite.candidateName,
     jobTitle: invite.interview.jobTitle,

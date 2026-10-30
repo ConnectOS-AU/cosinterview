@@ -1,5 +1,5 @@
 import "server-only";
-import { formatSlot, reminderEmail } from "./emails";
+import { candidateVars, formatSlot, messageText, reminderEmail } from "./emails";
 import { candidateCalendarEvent } from "./invite";
 import { mailConfigured, mailForNote, sendCandidateMail } from "./mail";
 import { messageCandidate } from "./messaging";
@@ -54,7 +54,7 @@ export async function sendDueReminders(now = new Date()): Promise<number> {
     const roomLink = booking.token ? (candidateCalendarEvent(invite, booking.token)?.url ?? null) : null;
     let emailNote: string | null = null;
     if (mailConfigured()) {
-      const content = reminderEmail({
+      const content = await reminderEmail({
         kind,
         candidateName: invite.candidateName,
         recruiterName: invite.recruiter.displayName,
@@ -79,12 +79,16 @@ export async function sendDueReminders(now = new Date()): Promise<number> {
     }
     const messageNote = await messageCandidate(
       numbers,
-      [
-        `Hi ${invite.candidateName.split(" ")[0]}, a reminder: your ConnectOS interview${invite.interview.jobTitle ? ` for ${invite.interview.jobTitle}` : ""} with ${invite.recruiter.displayName} is ${kind === "24h" ? "tomorrow" : "in 2 hours"} - ${when}.`,
-        roomLink ? `Join the video call here (it opens 15 minutes before): ${roomLink}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      await messageText(kind === "24h" ? "msgReminder24h" : "msgReminder2h", {
+        ...candidateVars({
+          candidateName: invite.candidateName,
+          jobTitle: invite.interview.jobTitle,
+          recruiterName: invite.recruiter.displayName,
+          recruiterTitle: invite.recruiter.title,
+        }),
+        when,
+        roomLink,
+      }),
     );
     // Neither went out (an email failure and no numbers): try again next run.
     if (!emailNote && !messageNote) {
