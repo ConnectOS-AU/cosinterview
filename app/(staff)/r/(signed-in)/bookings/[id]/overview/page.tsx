@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
 import { getDebrief, likelihoodTimeline, NEXT_STEP_LABEL, OUTCOME_LABEL, type DebriefState, type TimelinePoint } from "@/lib/candidate-debrief";
+import { getLinkedinCheck, LINKEDIN_OUTCOME_LABEL, type LinkedinCheck } from "@/lib/linkedin-check";
 import { getCandidateReview, type ReviewState } from "@/lib/candidate-review";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
@@ -28,10 +29,11 @@ export default async function CandidateOverviewPage({ params }: Props) {
   const { recruiter } = await requireRecruiter();
   const invite = await findInviteById(id);
   if (!invite || invite.recruiter.id !== recruiter.id) notFound();
-  const [state, after, timeline] = await Promise.all([
+  const [state, after, timeline, linkedinCheck] = await Promise.all([
     getCandidateReview(invite.bookingId),
     getDebrief(invite.bookingId),
     likelihoodTimeline(invite),
+    getLinkedinCheck(invite.bookingId).catch(() => null),
   ]);
   const zone = recruiter.timezone;
   const when = invite.slotStart ? DateTime.fromISO(invite.slotStart, { zone }).toFormat("cccc d LLLL, h:mm a") : "Not booked yet";
@@ -73,7 +75,7 @@ export default async function CandidateOverviewPage({ params }: Props) {
       {!booked ? (
         <Notice>The overview is written once the candidate books a time.</Notice>
       ) : state.status === "done" && state.review ? (
-        <Review state={state} review={state.review} bookingId={invite.bookingId} zone={zone} />
+        <Review state={state} review={state.review} bookingId={invite.bookingId} zone={zone} linkedinCheck={linkedinCheck} />
       ) : state.status === "pending" || state.status === "running" ? (
         <Notice>
           <p>The overview is being written from the resume, JobAdder notes and job description. This page updates by itself.</p>
@@ -108,7 +110,19 @@ function Card({ title, tone, children }: { title: string; tone?: string; childre
   );
 }
 
-function Review({ state, review, bookingId, zone }: { state: ReviewState; review: CandidateReview; bookingId: string; zone: string }) {
+function Review({
+  state,
+  review,
+  bookingId,
+  zone,
+  linkedinCheck,
+}: {
+  state: ReviewState;
+  review: CandidateReview;
+  bookingId: string;
+  zone: string;
+  linkedinCheck: LinkedinCheck | null;
+}) {
   const sources = state.sources;
   return (
     <>
@@ -182,7 +196,14 @@ function Review({ state, review, bookingId, zone }: { state: ReviewState; review
                 <a href={sources.linkedinUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-neutral-900 underline">
                   open profile ↗
                 </a>{" "}
-                <span className="text-xs text-neutral-500">- not read automatically (LinkedIn doesn&apos;t allow it). Worth a look before the interview.</span>
+                {linkedinCheck ? (
+                  <span className={`text-xs ${linkedinCheck.outcome === "matches" ? "text-emerald-700" : "text-amber-700"}`}>
+                    - checked by {linkedinCheck.checkedBy}: {LINKEDIN_OUTCOME_LABEL[linkedinCheck.outcome]}
+                    {linkedinCheck.note && ` (${linkedinCheck.note})`}
+                  </span>
+                ) : (
+                  <span className="text-xs text-amber-700">- not read automatically (LinkedIn doesn&apos;t allow it). The recruiter must check it before joining the interview.</span>
+                )}
               </>
             ) : (
               "none given"

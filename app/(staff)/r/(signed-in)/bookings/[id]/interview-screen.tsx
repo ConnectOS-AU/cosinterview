@@ -5,7 +5,9 @@ import { useEffect, useRef, useState, useTransition, type ReactNode } from "reac
 import { useRouter } from "next/navigation";
 import type { InterviewNote } from "@/lib/staff/repo";
 import { noteLine, parseCallName } from "@/lib/stages";
+import type { LinkedinCheck } from "@/lib/linkedin-check";
 import { InterviewTimer } from "./interview-timer";
+import { LinkedinCheckPanel } from "./linkedin-check";
 import { finishInterview, joinAsRecruiter, loadNotes, noteAttendee, recordingStarted, removeNote, saveNote } from "./actions";
 
 type Phase = "idle" | "joining" | "joined" | "left" | "no_video" | "error";
@@ -21,6 +23,8 @@ type Props = {
   notePrefix: string;
   // The booked time, for the countdown at the top (null when not booked).
   slot: { start: string; end: string; zone: string } | null;
+  // The candidate's LinkedIn profile, when there is one: checking it is required before joining.
+  linkedin: { url: string; check: LinkedinCheck | null } | null;
   // Right-hand column beside the video (the job description).
   aside?: ReactNode;
 };
@@ -29,11 +33,13 @@ type Props = {
 // to admit the candidate from the lobby, automatic recording once the candidate
 // is in, a countdown to the booked end time at the top, timestamped notes under the video, and `aside` (the job description)
 // to the right.
-export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes, notePrefix, slot, aside }: Props) {
+export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes, notePrefix, slot, linkedin, aside }: Props) {
   const router = useRouter();
   const frameRef = useRef<HTMLDivElement>(null);
   const callRef = useRef<DailyCall | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [linkedinCheck, setLinkedinCheck] = useState(linkedin?.check ?? null);
+  const linkedinPending = Boolean(linkedin && !linkedinCheck);
   const [error, setError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<Waiting[]>([]);
   const [recording, setRecordingState] = useState<RecordingState>("off");
@@ -142,6 +148,9 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
     <div className="grid gap-5 lg:grid-cols-3">
       <div className="space-y-3 lg:col-span-2">
         {slot && canJoin && <InterviewTimer slotStart={slot.start} slotEnd={slot.end} zone={slot.zone} />}
+        {linkedin && canJoin && (
+          <LinkedinCheckPanel bookingId={bookingId} url={linkedin.url} check={linkedinCheck} onChecked={setLinkedinCheck} />
+        )}
         {waiting.length > 0 && (
           <section role="alert" className="rounded-lg border border-amber-200 bg-amber-50">
             <div className="flex items-center justify-between gap-3 border-b border-amber-200 px-4 py-2">
@@ -196,11 +205,13 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
                     <button
                       type="button"
                       onClick={join}
-                      className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+                      disabled={linkedinPending}
+                      className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Join interview
                     </button>
                   )}
+                  {canJoin && linkedinPending && <p className="text-xs text-amber-300">Record the LinkedIn check above to join.</p>}
                 </>
               )}
               {phase === "joining" && <p className="text-sm text-neutral-300">Connecting…</p>}
