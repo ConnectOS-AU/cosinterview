@@ -31,6 +31,9 @@ export default async function AdminPage() {
         <Link href="/r/admin/lobby" className="mt-3 inline-block rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50">
           Edit the candidate lobby screen
         </Link>
+        <Link href="/r/admin/templates" className="ml-2 mt-3 inline-block rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-800 hover:bg-neutral-50">
+          Edit emails and messages
+        </Link>
       </div>
 
       <section>

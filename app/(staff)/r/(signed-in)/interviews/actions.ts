@@ -3,7 +3,7 @@
 import { DateTime } from "luxon";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
-import { cancellationEmail, type EmailContent, formatSlot, inviteEmail } from "@/lib/emails";
+import { cancellationEmail, candidateVars, type EmailContent, formatSlot, inviteEmail, messageText, onWhen } from "@/lib/emails";
 import { deleteInterviewEvent, graphConfigured } from "@/lib/graph";
 import { siteUrl } from "@/lib/invite";
 import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
@@ -42,7 +42,8 @@ type Recruiter = Pick<RecruiterProfile, "displayName" | "calendarEmail">;
 
 // Sends one email to a candidate in the recruiter's name. Returns the text for
 // the JobAdder note, or null if it couldn't be sent.
-async function sendToCandidate(recruiter: Recruiter, to: { name: string; email: string }, content: EmailContent): Promise<string | null> {
+async function sendToCandidate(recruiter: Recruiter, to: { name: string; email: string }, pending: Promise<EmailContent>): Promise<string | null> {
+  const content = await pending;
   const mail = { to, recruiter: { name: recruiter.displayName, email: recruiter.calendarEmail }, subject: content.subject, html: content.bodyHtml, text: content.text };
   try {
     await sendCandidateMail(mail);
@@ -57,7 +58,8 @@ async function sendToCandidate(recruiter: Recruiter, to: { name: string; email: 
 const note = (summary: string, ...sent: (string | null)[]) => [summary, ...sent].filter(Boolean).join("\n\n");
 
 const numbersOf = (invite: InviteRecord) => ({ whatsapp: invite.candidateWhatsapp, viber: invite.candidateViber });
-const firstName = (name: string) => name.split(" ")[0];
+const varsOf = (invite: InviteRecord) =>
+  candidateVars({ candidateName: invite.candidateName, jobTitle: invite.interview.jobTitle, recruiterName: invite.recruiter.displayName, recruiterTitle: invite.recruiter.title });
 
 const EMAIL_FAILED = "Email couldn't be sent - copy the link instead.";
 
@@ -65,7 +67,7 @@ function inviteContent(
   recruiter: RecruiterProfile,
   to: { name: string },
   details: { jobTitle: string | null; durationMins: number; link: string; expiresAt: string; reschedule?: boolean; message?: string | null },
-): EmailContent {
+): Promise<EmailContent> {
   return inviteEmail({ candidateName: to.name, recruiterName: recruiter.displayName, recruiterTitle: recruiter.title, ...details });
 }
 
@@ -243,7 +245,7 @@ export async function rescheduleBooking(bookingId: string, sendEmail: boolean): 
   const message = sendEmail
     ? await messageCandidate(
         numbersOf(invite),
-        `Hi ${firstName(invite.candidateName)}, your ConnectOS interview${candidateWas ? ` on ${candidateWas}` : ""} needs to move. Please choose a new time here: ${link}`,
+        await messageText("msgReschedule", { ...varsOf(invite), onWhen: onWhen(candidateWas), link }),
       )
     : null;
   after(() =>
@@ -290,7 +292,7 @@ export async function cancelBooking(bookingId: string): Promise<{ ok: true } | {
   const message = candidateWhen
     ? await messageCandidate(
         numbersOf(invite),
-        `Hi ${firstName(invite.candidateName)}, your ConnectOS interview${invite.interview.jobTitle ? ` for ${invite.interview.jobTitle}` : ""} on ${candidateWhen} has been cancelled. ${invite.recruiter.displayName} will be in touch.`,
+        await messageText("msgCancellation", { ...varsOf(invite), onWhen: onWhen(candidateWhen) }),
       )
     : null;
   after(() =>
