@@ -122,7 +122,7 @@ async function candidateNotes(candidateId: string): Promise<ReviewInputs["notes"
     .filter((n) => n.text && !/COSInterview/.test(n.text));
 }
 
-async function applicationAnswers(applicationId: string | null): Promise<ReviewInputs["application"]> {
+export async function applicationAnswers(applicationId: string | null): Promise<ReviewInputs["application"]> {
   const empty = { linkedinUrl: null, expectedSalary: null, currentSalary: null };
   if (!applicationId) return empty;
   const { data, error } = await supabaseAdmin()

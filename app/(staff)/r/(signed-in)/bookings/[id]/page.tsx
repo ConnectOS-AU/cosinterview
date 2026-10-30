@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
 import { listAttendees, type Attendee } from "@/lib/attendance";
 import { getCandidateReview } from "@/lib/candidate-review";
+import { getLinkedinCheck, linkedinUrlFor } from "@/lib/linkedin-check";
 import { clientResumeId, listGuests } from "@/lib/guests";
 import { listResumeVersions } from "@/lib/resumes";
 import { getJobDescription } from "@/lib/job-description";
@@ -33,7 +34,7 @@ export default async function BookingPage({ params }: Props) {
 
   const live = invite.status !== "completed";
   const clientStage = isClientStage(invite.interview.stage);
-  const [notes, jobDescription, review, guests, resumes, resumeChoice, attendees] = await Promise.all([
+  const [notes, jobDescription, review, guests, resumes, resumeChoice, attendees, linkedinUrl, linkedinCheck] = await Promise.all([
     listNotes(invite.bookingId),
     live ? getJobDescription(invite.interview.jobadderJobId) : null,
     live ? getCandidateReview(invite.bookingId) : null,
@@ -41,6 +42,8 @@ export default async function BookingPage({ params }: Props) {
     listResumeVersions(invite.jobadderCandidateId),
     clientStage ? clientResumeId(invite.bookingId) : null,
     listAttendees(invite.bookingId),
+    live ? linkedinUrlFor(invite).catch(() => null) : null,
+    live ? getLinkedinCheck(invite.bookingId) : null,
   ]);
   const zone = recruiter.timezone;
   const badge = STATUS_BADGE[invite.status];
@@ -113,6 +116,7 @@ export default async function BookingPage({ params }: Props) {
           canJoin={invite.status === "booked" || invite.status === "in_progress"}
           initialNotes={notes}
           notePrefix={stagePrefix(invite.interview.stage, invite.slotStart)}
+          linkedin={linkedinUrl ? { url: linkedinUrl, check: linkedinCheck } : null}
           slot={invite.slotStart && invite.slotEnd ? { start: invite.slotStart, end: invite.slotEnd, zone: recruiter.timezone } : null}
           aside={
             <InterviewAside
