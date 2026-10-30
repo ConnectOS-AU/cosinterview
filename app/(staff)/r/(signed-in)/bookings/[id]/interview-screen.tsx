@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useTransition, type ReactNode } from "reac
 import { useRouter } from "next/navigation";
 import type { InterviewNote } from "@/lib/staff/repo";
 import { noteLine, parseCallName } from "@/lib/stages";
+import { InterviewTimer } from "./interview-timer";
 import { finishInterview, joinAsRecruiter, loadNotes, noteAttendee, recordingStarted, removeNote, saveNote } from "./actions";
 
 type Phase = "idle" | "joining" | "joined" | "left" | "no_video" | "error";
@@ -18,15 +19,17 @@ type Props = {
   initialNotes: InterviewNote[];
   // "[Interview 1 · 30 Oct 2026]", in front of every note.
   notePrefix: string;
+  // The booked time, for the countdown at the top (null when not booked).
+  slot: { start: string; end: string; zone: string } | null;
   // Right-hand column beside the video (the job description).
   aside?: ReactNode;
 };
 
 // The recruiter's side of the interview: Daily video (joined as owner), a banner
 // to admit the candidate from the lobby, automatic recording once the candidate
-// is in, timestamped notes under the video, and `aside` (the job description)
+// is in, a countdown to the booked end time at the top, timestamped notes under the video, and `aside` (the job description)
 // to the right.
-export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes, notePrefix, aside }: Props) {
+export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes, notePrefix, slot, aside }: Props) {
   const router = useRouter();
   const frameRef = useRef<HTMLDivElement>(null);
   const callRef = useRef<DailyCall | null>(null);
@@ -138,6 +141,7 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
   return (
     <div className="grid gap-5 lg:grid-cols-3">
       <div className="space-y-3 lg:col-span-2">
+        {slot && canJoin && <InterviewTimer slotStart={slot.start} slotEnd={slot.end} zone={slot.zone} />}
         {waiting.length > 0 && (
           <section role="alert" className="rounded-lg border border-amber-200 bg-amber-50">
             <div className="flex items-center justify-between gap-3 border-b border-amber-200 px-4 py-2">

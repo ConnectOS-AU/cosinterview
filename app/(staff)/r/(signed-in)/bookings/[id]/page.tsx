@@ -113,6 +113,7 @@ export default async function BookingPage({ params }: Props) {
           canJoin={invite.status === "booked" || invite.status === "in_progress"}
           initialNotes={notes}
           notePrefix={stagePrefix(invite.interview.stage, invite.slotStart)}
+          slot={invite.slotStart && invite.slotEnd ? { start: invite.slotStart, end: invite.slotEnd, zone: recruiter.timezone } : null}
           aside={
             <InterviewAside
               bookingId={invite.bookingId}
