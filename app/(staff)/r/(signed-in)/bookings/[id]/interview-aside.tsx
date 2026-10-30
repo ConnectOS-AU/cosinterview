@@ -2,23 +2,19 @@
 
 import { useSecondScreen } from "@/lib/companion";
 import type { ReviewQuestion } from "@/lib/worker/review";
-import { JobDescriptionPane } from "./job-description-pane";
 import { QuestionsPanel } from "./questions-panel";
 
-// Beside the video: the job description and the questions to ask. "Second
-// screen" moves both into their own window - on the other monitor where the
-// browser allows it (Window Management permission), otherwise wherever the
-// interviewer drags it - and this column steps aside until it's closed.
+// Beside the video: a link to the job description (its own tab, so the video
+// keeps the space) and the questions to ask. "Second screen" moves both into
+// their own window - on the other monitor where the browser allows it (Window
+// Management permission), otherwise wherever the interviewer drags it - and
+// this column steps aside until it's closed.
 export function InterviewAside({
   bookingId,
-  jobTitle,
-  jobHtml,
   questions,
   reviewStatus,
 }: {
   bookingId: string;
-  jobTitle: string | null;
-  jobHtml: string | null;
   questions: ReviewQuestion[] | null;
   reviewStatus: string;
 }) {
@@ -46,8 +42,16 @@ export function InterviewAside({
 
   return (
     <>
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         {error && <span className="text-xs text-red-600">{error}</span>}
+        <a
+          href={`/r/companion/${bookingId}/job`}
+          target="_blank"
+          rel="noopener"
+          className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+        >
+          Job description ↗
+        </a>
         <button
           type="button"
           onClick={openSecondScreen}
@@ -57,8 +61,7 @@ export function InterviewAside({
           Move to second screen ⧉
         </button>
       </div>
-      <JobDescriptionPane jobTitle={jobTitle} html={jobHtml} sizeClass="max-h-[30rem] lg:max-h-[calc(55vh)]" />
-      <QuestionsPanel bookingId={bookingId} questions={questions} reviewStatus={reviewStatus} sizeClass="max-h-[28rem] lg:max-h-[calc(45vh-6rem)]" />
+      <QuestionsPanel bookingId={bookingId} questions={questions} reviewStatus={reviewStatus} sizeClass="max-h-[28rem] lg:max-h-[calc(100dvh-6rem)]" />
     </>
   );
 }

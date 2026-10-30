@@ -5,8 +5,9 @@ import { useState, type ReactNode } from "react";
 // The channel the client lobby and its second-screen window talk on.
 export const guestScreenKey = (token: string) => `guest:${token.slice(0, 16)}`;
 
-// The candidate's resume and the job description: tabs in the client lobby,
-// side by side in its second-screen window.
+// The candidate's resume and the job description: side by side in the
+// second-screen window. In the client lobby only the resume (resumeOnly) - the
+// job description is a link there, so the video keeps the space.
 export function CandidateDocs({
   token,
   candidateName,
@@ -14,6 +15,7 @@ export function CandidateDocs({
   jobHtml,
   height,
   sideBySide = false,
+  resumeOnly = false,
 }: {
   token: string;
   candidateName: string;
@@ -21,6 +23,7 @@ export function CandidateDocs({
   jobHtml: string | null;
   height: string;
   sideBySide?: boolean;
+  resumeOnly?: boolean;
 }) {
   const [tab, setTab] = useState<"resume" | "job">("resume");
   const resumeUrl = `/g/${token}/resume`;
@@ -51,6 +54,7 @@ export function CandidateDocs({
     </Pane>
   );
 
+  if (resumeOnly) return resume;
   if (sideBySide) {
     return (
       <div className="grid gap-4 lg:grid-cols-2">

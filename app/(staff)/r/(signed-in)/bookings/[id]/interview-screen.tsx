@@ -145,8 +145,8 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
   const inCall = phase === "joined";
 
   return (
-    <div className="grid gap-5 lg:grid-cols-3">
-      <div className="space-y-3 lg:col-span-2">
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="min-w-0 space-y-3">
         {slot && canJoin && <InterviewTimer slotStart={slot.start} slotEnd={slot.end} zone={slot.zone} />}
         {linkedin && canJoin && (
           <LinkedinCheckPanel bookingId={bookingId} url={linkedin.url} check={linkedinCheck} onChecked={setLinkedinCheck} />
@@ -190,7 +190,8 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
           </section>
         )}
 
-        <div className="relative aspect-video overflow-hidden rounded-lg border border-neutral-200 bg-neutral-900">
+        {/* As wide as the column allows, but never taller than the window. */}
+        <div className="relative aspect-video max-h-[calc(100dvh-5rem)] min-h-[18rem] w-full overflow-hidden rounded-lg border border-neutral-200 bg-neutral-900">
           <div ref={frameRef} className={inCall ? "absolute inset-0" : "hidden"} />
           {!inCall && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
