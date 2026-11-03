@@ -8,7 +8,8 @@ import type { InviteRecord } from "./types";
 // The mandatory LinkedIn check. LinkedIn can't be read automatically (it needs
 // a sign-in and doesn't allow it), so when the candidate's resume or JobAdder
 // application gives a LinkedIn profile, the recruiter compares it with the
-// resume and records the result before they can join the interview. Stored on
+// resume and records the result before they can join the interview, unless
+// they upload the profile as a PDF for the candidate overview to compare. Stored on
 // the booking (cos_recruitment_bookings.linkedin_check), added to JobAdder,
 // and given to the post-interview overview.
 

@@ -12,7 +12,7 @@ import { sendCandidateMail, type MailAttachment } from "@/lib/mail";
 import { htmlToText } from "@/lib/review-inputs";
 import { runDebrief } from "@/lib/candidate-debrief";
 import { getLinkedinCheck, linkedinCheckText, linkedinUrlFor, saveLinkedinCheck, type LinkedinCheck, type LinkedinOutcome } from "@/lib/linkedin-check";
-import { MAX_LINKEDIN_PDF_BYTES, removeLinkedinPdf, saveLinkedinPdf, type LinkedinPdf } from "@/lib/linkedin-pdf";
+import { getLinkedinPdf, MAX_LINKEDIN_PDF_BYTES, removeLinkedinPdf, saveLinkedinPdf, type LinkedinPdf } from "@/lib/linkedin-pdf";
 import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { arrivalText, candidateArrivals } from "@/lib/punctuality";
 import { createOwnerToken } from "@/lib/daily";
@@ -51,8 +51,9 @@ export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
     if (invite.status !== "booked" && invite.status !== "in_progress") {
       return { ok: false, error: "This interview isn't booked." };
     }
-    // The LinkedIn check is mandatory when there's a profile to check.
-    if (!(await getLinkedinCheck(bookingId)) && (await linkedinUrlFor(invite))) {
+    // The LinkedIn check is mandatory when there's a profile to check, unless
+    // the PDF is uploaded: the candidate overview then does the comparison.
+    if (!(await getLinkedinCheck(bookingId)) && !(await getLinkedinPdf(bookingId)) && (await linkedinUrlFor(invite))) {
       return { ok: false, error: "Record the LinkedIn check before joining." };
     }
     const room = await roomForBooking(invite);
@@ -209,6 +210,7 @@ export async function uploadLinkedinPdf(
     const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
     const pdf = await saveLinkedinPdf(bookingId, file.name.slice(0, 200), bytes, name);
     refreshOverview(invite);
+    revalidatePath(`/r/bookings/${bookingId}`);
     return { ok: true, pdf };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
@@ -220,6 +222,7 @@ export async function deleteLinkedinPdf(bookingId: string): Promise<{ ok: true }
     const { invite } = await ownBooking(bookingId);
     await removeLinkedinPdf(bookingId);
     refreshOverview(invite);
+    revalidatePath(`/r/bookings/${bookingId}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };

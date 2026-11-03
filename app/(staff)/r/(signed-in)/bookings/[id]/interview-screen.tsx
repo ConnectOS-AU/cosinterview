@@ -23,7 +23,7 @@ type Props = {
   notePrefix: string;
   // The booked time, for the countdown at the top (null when not booked).
   slot: { start: string; end: string; zone: string } | null;
-  // The candidate's LinkedIn profile, when there is one: checking it is required before joining.
+  // The candidate's LinkedIn profile, when there is one and no PDF of it to compare automatically: checking it is required before joining.
   linkedin: { url: string; check: LinkedinCheck | null } | null;
   // Right-hand column beside the video (the job description).
   aside?: ReactNode;
