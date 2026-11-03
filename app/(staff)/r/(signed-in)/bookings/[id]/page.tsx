@@ -114,7 +114,7 @@ export default async function BookingPage({ params }: Props) {
           canJoin={invite.status === "booked" || invite.status === "in_progress"}
           initialNotes={notes}
           notePrefix={stagePrefix(invite.interview.stage, invite.slotStart)}
-          linkedin={linkedinUrl ? { url: linkedinUrl, check: linkedinCheck } : null}
+          linkedin={linkedinUrl && !linkedinPdf ? { url: linkedinUrl, check: linkedinCheck } : null}
           slot={invite.slotStart && invite.slotEnd ? { start: invite.slotStart, end: invite.slotEnd, zone: recruiter.timezone } : null}
           aside={
             <InterviewAside

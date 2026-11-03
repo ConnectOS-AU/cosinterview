@@ -18,6 +18,7 @@ const LABEL: Record<LinkedinOutcome, string> = {
 
 // The mandatory LinkedIn check: the recruiter compares the profile with the
 // resume and records what they found. Until then, Join interview is locked.
+// Not shown once the LinkedIn PDF is uploaded: the candidate overview compares it.
 export function LinkedinCheckPanel({
   bookingId,
   url,

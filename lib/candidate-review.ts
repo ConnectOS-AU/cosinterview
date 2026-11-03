@@ -247,7 +247,7 @@ export function reviewNoteText(invite: InviteRecord, review: CandidateReview, so
     `Discrepancies\n${points(review.discrepancies)}`,
     ...(compared ? [`LinkedIn comparison\n${compared.summary}\nMatches\n${list(compared.matches)}\nDifferences\n${points(compared.differences)}`] : []),
     `Questions to ask\n${review.questions.map((q, i) => `${i + 1}. ${q.question} (${q.purpose})`).join("\n")}`,
-    `Based on: ${based}.${sources.linkedinUrl ? `\nLinkedIn: ${sources.linkedinUrl}${sources.linkedinPdfFile ? "" : " - not reviewed automatically; check it before the interview."}` : ""}`,
+    `Based on: ${based}.${sources.linkedinUrl ? `\nLinkedIn: ${sources.linkedinUrl}${sources.linkedinPdfFile ? "" : " - not reviewed automatically; upload the PDF or check it before the interview."}` : ""}`,
   ].join("\n\n");
 }
 
