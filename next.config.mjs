@@ -26,8 +26,8 @@ const guestFrameHeaders = [{ key: "Content-Security-Policy", value: "frame-ances
 
 const nextConfig = {
   experimental: {
-    // Recruiter photo uploads (limited to 2 MB in the action itself).
-    serverActions: { bodySizeLimit: "3mb" },
+    // Recruiter photos and LinkedIn PDFs (limited to 2 MB and 4 MB in their actions).
+    serverActions: { bodySizeLimit: "5mb" },
   },
   async headers() {
     return [

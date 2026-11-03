@@ -12,6 +12,7 @@ import { sendCandidateMail, type MailAttachment } from "@/lib/mail";
 import { htmlToText } from "@/lib/review-inputs";
 import { runDebrief } from "@/lib/candidate-debrief";
 import { getLinkedinCheck, linkedinCheckText, linkedinUrlFor, saveLinkedinCheck, type LinkedinCheck, type LinkedinOutcome } from "@/lib/linkedin-check";
+import { MAX_LINKEDIN_PDF_BYTES, removeLinkedinPdf, saveLinkedinPdf, type LinkedinPdf } from "@/lib/linkedin-pdf";
 import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { createOwnerToken } from "@/lib/daily";
 import { demoMode } from "@/lib/demo";
@@ -173,11 +174,50 @@ export async function sendSummaryToJobAdder(bookingId: string): Promise<{ ok: tr
 export async function regenerateReview(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const { invite } = await ownBooking(bookingId);
-    if (invite.status === "invited" || invite.status === "cancelled") return { ok: false, error: "The candidate hasn't booked." };
+    if (invite.status === "cancelled") return { ok: false, error: "This interview was cancelled." };
     const result = await regenerateCandidateReview(invite);
     revalidatePath(`/r/bookings/${bookingId}/overview`);
     if (result === "skipped") return { ok: false, error: "The overview isn't set up on this server (no Anthropic API key)." };
     if (result === "failed") return { ok: false, error: "The overview couldn't be written - the details are on the page." };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
+  }
+}
+
+// Rewrites the overview in the background.
+function refreshOverview(invite: Awaited<ReturnType<typeof ownBooking>>["invite"]) {
+  if (invite.status === "cancelled") return;
+  after(() => regenerateCandidateReview(invite).catch((err) => console.error("[linkedin pdf] Overview rewrite failed", invite.bookingId, err)));
+}
+
+// The candidate's LinkedIn profile as a PDF, for the overview to compare with
+// the resume. A new upload replaces the old one.
+export async function uploadLinkedinPdf(
+  bookingId: string,
+  form: FormData,
+): Promise<{ ok: true; pdf: LinkedinPdf } | { ok: false; error: string }> {
+  try {
+    const { staff, invite } = await ownBooking(bookingId);
+    const file = form.get("file");
+    if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a PDF to upload." };
+    if (file.size > MAX_LINKEDIN_PDF_BYTES) return { ok: false, error: "That file is too big - the limit is 4 MB." };
+    const bytes = Buffer.from(await file.arrayBuffer());
+    if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") return { ok: false, error: "That file isn't a PDF." };
+    const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
+    const pdf = await saveLinkedinPdf(bookingId, file.name.slice(0, 200), bytes, name);
+    refreshOverview(invite);
+    return { ok: true, pdf };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
+  }
+}
+
+export async function deleteLinkedinPdf(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { invite } = await ownBooking(bookingId);
+    await removeLinkedinPdf(bookingId);
+    refreshOverview(invite);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };

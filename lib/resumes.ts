@@ -3,8 +3,9 @@ import { demoMode } from "./demo";
 import { jobAdderGet, jobAdderGetFile, jobAdderWriteConfigured } from "./staff/jobadder-api";
 
 // A candidate's resumes on JobAdder: the original(s) they sent and the
-// formatted (ConnectOS-branded) version(s). The recruiter can open any of them;
-// client attendees only ever see a formatted one.
+// formatted (ConnectOS-branded) version(s), plus any cover letters. The
+// recruiter can open any of them; client attendees only ever see a formatted
+// resume.
 //
 // UNVERIFIED: JobAdder's attachment endpoints (GET /candidates/{id}/attachments
 // and .../attachments/{attachmentId}) and their field names. A formatted resume
@@ -55,43 +56,50 @@ export function resumeFormat(fileName: string, contentType: string, bytes: Buffe
   return null;
 }
 
+// Cover letters are kept apart first: "Cover letter for resume.pdf" isn't a resume.
+const isCoverLetter = (a: Attachment) => /cover/.test(kindOf(a)) || /cover.?letter/i.test(nameOf(a));
+const isResume = (a: Attachment) => !isCoverLetter(a) && (/resume|cv/.test(kindOf(a)) || /resume|cv/i.test(nameOf(a)));
+
+const DEMO_COVER_LETTERS: ResumeVersion[] = [
+  { id: "demo-cover", fileName: "Cover letter.pdf", formatted: false, createdAt: "2026-10-12T02:00:00Z", byType: true, readable: true },
+];
+
 const DEMO_VERSIONS: ResumeVersion[] = [
   { id: "demo-formatted", fileName: "ConnectOS formatted resume.pdf", formatted: true, createdAt: "2026-10-20T02:00:00Z", byType: true, readable: true },
   { id: "demo-original", fileName: "Resume (as sent).pdf", formatted: false, createdAt: "2026-10-12T02:00:00Z", byType: true, readable: true },
 ];
 
-// Every resume, newest first.
-export async function listResumeVersions(candidateId: string): Promise<{ versions: ResumeVersion[]; problem: string | null }> {
-  if (demoMode()) return { versions: DEMO_VERSIONS, problem: null };
-  if (!/^\d+$/.test(candidateId) || !jobAdderWriteConfigured()) return { versions: [], problem: "JobAdder isn't connected." };
+// Every resume and cover letter, newest first.
+export async function listResumeVersions(candidateId: string): Promise<{ versions: ResumeVersion[]; coverLetters: ResumeVersion[]; problem: string | null }> {
+  if (demoMode()) return { versions: DEMO_VERSIONS, coverLetters: DEMO_COVER_LETTERS, problem: null };
+  if (!/^\d+$/.test(candidateId) || !jobAdderWriteConfigured()) return { versions: [], coverLetters: [], problem: "JobAdder isn't connected." };
   let list: Attachment[];
   try {
     const res = await jobAdderGet<{ items?: Attachment[] } | Attachment[]>(`/candidates/${candidateId}/attachments`);
     list = Array.isArray(res) ? res : (res.items ?? []);
   } catch (err) {
     console.error("[resume] Attachment list failed", candidateId, err);
-    return { versions: [], problem: "Couldn't read the candidate's attachments from JobAdder." };
+    return { versions: [], coverLetters: [], problem: "Couldn't read the candidate's attachments from JobAdder." };
   }
 
-  const versions = list
-    .filter((a) => str(a.attachmentId ?? a.id) && (/resume|cv/.test(kindOf(a)) || /resume|cv/i.test(nameOf(a))))
-    .map(
-      (a): ResumeVersion => ({
-        id: str(a.attachmentId ?? a.id),
-        fileName: nameOf(a) || "resume",
-        formatted: /formatted/.test(kindOf(a)) || /formatted/i.test(nameOf(a)),
-        createdAt: dateOf(a),
-        byType: /resume|cv/.test(kindOf(a)),
-        readable: readableAttachment(a),
-      }),
-    )
-    .sort((a, b) => (Date.parse(b.createdAt ?? "") || 0) - (Date.parse(a.createdAt ?? "") || 0));
+  const toVersion = (a: Attachment, fallbackName: string): ResumeVersion => ({
+    id: str(a.attachmentId ?? a.id),
+    fileName: nameOf(a) || fallbackName,
+    formatted: /formatted/.test(kindOf(a)) || /formatted/i.test(nameOf(a)),
+    createdAt: dateOf(a),
+    byType: /resume|cv/.test(kindOf(a)),
+    readable: readableAttachment(a),
+  });
+  const newestFirst = (a: ResumeVersion, b: ResumeVersion) => (Date.parse(b.createdAt ?? "") || 0) - (Date.parse(a.createdAt ?? "") || 0);
+  const attachments = list.filter((a) => str(a.attachmentId ?? a.id));
+  const versions = attachments.filter(isResume).map((a) => toVersion(a, "resume")).sort(newestFirst);
+  const coverLetters = attachments.filter(isCoverLetter).map((a) => toVersion(a, "cover letter")).sort(newestFirst);
 
   if (versions.length === 0) {
     console.info("[resume] No resume found for candidate", candidateId, "-", list.length, "attachments, fields:", list[0] ? Object.keys(list[0]).join(", ") : "(none)");
-    return { versions, problem: list.length ? "No resume among the candidate's JobAdder attachments." : "No resume on JobAdder." };
+    return { versions, coverLetters, problem: list.length ? "No resume among the candidate's JobAdder attachments." : "No resume on JobAdder." };
   }
-  return { versions, problem: null };
+  return { versions, coverLetters, problem: null };
 }
 
 export async function downloadResumeVersion(candidateId: string, version: ResumeVersion): Promise<ResumeFile> {

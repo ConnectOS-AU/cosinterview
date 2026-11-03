@@ -9,6 +9,7 @@ import { SUMMARY_MODEL } from "./summarise";
 
 export type ReviewQuestion = { question: string; purpose: string; topic: "gap" | "discrepancy" | "verify" | "motivation" };
 export type ReviewPoint = { point: string; detail: string };
+export type LinkedinComparison = { summary: string; matches: string[]; differences: ReviewPoint[] };
 
 export type CandidateReview = {
   // "insufficient": nothing to judge yet (no resume, nothing in the notes) -
@@ -22,6 +23,8 @@ export type CandidateReview = {
   discrepancies: ReviewPoint[];
   questions: ReviewQuestion[];
   linkedinUrl: string | null;
+  // Only when a LinkedIn profile PDF was uploaded. Missing on older reviews.
+  linkedinComparison?: LinkedinComparison | null;
 };
 
 
@@ -42,7 +45,7 @@ const point = {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["suitability", "likelihoodPercent", "opinion", "summary", "positives", "gaps", "discrepancies", "questions", "linkedinUrl"],
+  required: ["suitability", "likelihoodPercent", "opinion", "summary", "positives", "gaps", "discrepancies", "questions", "linkedinUrl", "linkedinComparison"],
   properties: {
     suitability: { type: "string", enum: ["strong", "good", "possible", "unlikely", "insufficient"] },
     likelihoodPercent: {
@@ -72,11 +75,27 @@ const SCHEMA = {
       },
     },
     linkedinUrl: { type: ["string", "null"], description: "A LinkedIn profile URL written in the resume, else null." },
+    linkedinComparison: {
+      description: "The LinkedIn profile PDF compared with the resume. null when no LinkedIn PDF was provided.",
+      anyOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["summary", "matches", "differences"],
+          properties: {
+            summary: { type: "string", description: "1-2 sentences: how well the two agree overall." },
+            matches: { type: "array", items: { type: "string" }, description: "What agrees, each specific." },
+            differences: { type: "array", items: point, description: "What differs, quoting both sides. Most serious first." },
+          },
+        },
+        { type: "null" },
+      ],
+    },
   },
 };
 
 const SYSTEM = `You help ConnectOS recruiters prepare for first-round interviews for offshore roles based in the Philippines.
-Before the interview you get the job description, the candidate's resume (if one was found), the recruitment team's JobAdder notes about the candidate, and their application answers.
+Before the interview you get the job description, the candidate's resume (if one was found), the recruitment team's JobAdder notes about the candidate, their application answers, and sometimes their LinkedIn profile as a PDF.
 
 Compare the candidate with the job description:
 - Positives: specific strengths for this role, with the evidence.
@@ -92,6 +111,12 @@ Checking the claims - do this before writing, and work through every dated claim
 4. Experience arithmetic: each "years of experience" figure against the dates of the roles that used that skill, against how long the technology has existed, and against any headline figure (e.g. a summary claiming fewer total years than one skill's total). Say which figures conflict and by how much.
 5. Real-world dates: every technology, language, framework, product, cloud platform, model and certification against when it was first publicly released or the certification first offered. Name each one used too early with the year claimed and roughly when it actually appeared; don't stop at examples, and use "about" when you're not sure of the exact year. Also flag claims whose scale or kind couldn't have existed at the date given (e.g. very large AI models or cloud infrastructure decades early).
 Group findings of the same kind into one discrepancy, with every instance named in its detail. When discrepancies undermine a claim, don't count that claim as a positive or as evidence of meeting a requirement.
+
+LinkedIn comparison - only when a LinkedIn profile PDF is provided; otherwise linkedinComparison is null:
+- Compare it with the resume item by item: employers, job titles, start and end dates, education, certifications, and skills or years of experience.
+- Matches: what agrees. Differences: what conflicts, quoting both sides (e.g. resume says 2019-2023, LinkedIn says 2021-2023), plus any job or qualification on one and not the other. A shorter profile isn't a conflict in itself: LinkedIn giving less detail about a role isn't a difference.
+- Put serious differences in discrepancies too, and ask about them in the questions.
+- If the PDF isn't a LinkedIn profile or appears to be a different person, say so in the summary, leave matches and differences empty, and don't use it for anything else.
 
 When there is nothing to judge - no resume, and the notes and application answers say nothing about the candidate's experience or skills - don't guess:
 - Set suitability to "insufficient" and likelihoodPercent to null. The opinion says plainly that nothing is known about the candidate yet and suggests asking them for a resume before the interview.
@@ -146,6 +171,13 @@ export async function reviewCandidate(input: {
   } else {
     content.push({ type: "text", text: `<resume>(none: ${inputs.resumeProblem ?? "not found"})</resume>` });
   }
+  if (inputs.linkedinPdf) {
+    content.push({
+      type: "document",
+      source: { type: "base64", media_type: "application/pdf", data: inputs.linkedinPdf.base64 },
+      title: `LinkedIn profile: ${inputs.linkedinPdf.fileName}`,
+    });
+  }
   content.push({ type: "text", text: "Write the pre-interview review." });
 
   client ??= new Anthropic();
@@ -164,13 +196,14 @@ export async function reviewCandidate(input: {
   const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   const review = JSON.parse(text) as CandidateReview;
   // Nothing to go on: no percentage, whatever the model said.
-  const nothingKnown = !inputs.resume && inputs.notes.length === 0;
+  const nothingKnown = !inputs.resume && !inputs.linkedinPdf && inputs.notes.length === 0;
   if (nothingKnown || review.suitability === "insufficient" || review.likelihoodPercent === null) {
     review.suitability = "insufficient";
     review.likelihoodPercent = null;
   } else {
     review.likelihoodPercent = Math.max(0, Math.min(100, Math.round(review.likelihoodPercent)));
   }
+  if (!inputs.linkedinPdf) review.linkedinComparison = null;
   if (review.linkedinUrl && !/^https:\/\/([a-z]+\.)?linkedin\.com\//i.test(review.linkedinUrl)) review.linkedinUrl = null;
   return review;
 }

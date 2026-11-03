@@ -72,8 +72,8 @@ export default async function CandidateOverviewPage({ params }: Props) {
         <h2 className="pt-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">Before the interview</h2>
       )}
 
-      {!booked ? (
-        <Notice>The overview is written once the candidate books a time.</Notice>
+      {invite.status === "cancelled" && state.status === "none" ? (
+        <Notice>This interview was cancelled before an overview was written.</Notice>
       ) : state.status === "done" && state.review ? (
         <Review state={state} review={state.review} bookingId={invite.bookingId} zone={zone} linkedinCheck={linkedinCheck} />
       ) : state.status === "pending" || state.status === "running" ? (
@@ -89,7 +89,7 @@ export default async function CandidateOverviewPage({ params }: Props) {
         </Notice>
       ) : (
         <Notice>
-          <p>No overview yet. It&apos;s written automatically after booking, or you can write it now.</p>
+          <p>No overview yet. It&apos;s written automatically after the invite, or you can write it now.</p>
           <ReviewControls bookingId={invite.bookingId} label="Write the overview now" waiting={false} />
         </Notice>
       )}
@@ -166,6 +166,22 @@ function Review({
         </Card>
       </div>
 
+      {review.linkedinComparison && (
+        <Card title="LinkedIn profile compared with the resume">
+          <p className="max-w-3xl text-sm leading-relaxed text-neutral-700">{review.linkedinComparison.summary}</p>
+          <div className="mt-4 grid gap-5 lg:grid-cols-2">
+            <div>
+              <h3 className="mb-2 text-xs font-semibold text-emerald-800">Matches</h3>
+              <List items={review.linkedinComparison.matches} empty="Nothing matched." />
+            </div>
+            <div>
+              <h3 className="mb-2 text-xs font-semibold text-red-800">Differences</h3>
+              <Points items={review.linkedinComparison.differences} empty="No differences found." />
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card title="Questions to ask">
         <p className="-mt-2 mb-3 text-xs text-neutral-500">Also shown beside the video on the interview screen, to read to the candidate.</p>
         <ol className="space-y-3">
@@ -189,6 +205,16 @@ function Review({
           <li>Resume: {sources?.resumeFile ?? <span className="text-amber-700">{sources?.resumeProblem ?? "not found"}</span>}</li>
           <li>JobAdder notes: {sources?.jobadderNotes ?? 0}</li>
           <li>Job description: {sources?.jobDescription ? "from JobAdder" : <span className="text-amber-700">none in JobAdder - judged on the job title</span>}</li>
+          <li>
+            LinkedIn PDF:{" "}
+            {sources?.linkedinPdfFile ? (
+              <a href={`/r/bookings/${bookingId}/linkedin-pdf`} target="_blank" rel="noopener" className="font-medium text-neutral-900 underline">
+                {sources.linkedinPdfFile}
+              </a>
+            ) : (
+              "none uploaded"
+            )}
+          </li>
           <li>
             LinkedIn:{" "}
             {sources?.linkedinUrl ? (
