@@ -23,6 +23,7 @@ import { allowRequest } from "@/lib/rate-limit";
 import { claimSlot, saveCandidateNumbers, saveGraphEvent, saveInviteLink } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
 import { runCandidateReview } from "@/lib/candidate-review";
+import { recordArrival } from "@/lib/punctuality";
 import { suggestNumbers, type SuggestedNumbers } from "@/lib/candidate-numbers";
 import { logToJobAdder } from "@/lib/staff/jobadder-api";
 import type { InviteRecord } from "@/lib/types";
@@ -237,6 +238,7 @@ export async function getRoomAccess(recruiter: string, token: string): Promise<R
   const window = joinWindow(invite);
   if (!window) return { ok: false, reason: "not_booked" };
   const now = DateTime.utc();
+  if (now <= window.closes) await recordArrival(invite);
   // The local demo skips the time check so the lobby can be tried straight away.
   if (!demoMode()) {
     if (now < window.opens) return { ok: false, reason: "too_early" };

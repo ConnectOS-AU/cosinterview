@@ -99,6 +99,7 @@ Do this:
 - Answers: for each suggested question, find where it (or something close to it) was asked and summarise what the candidate said, with the time. Judge the outcome: resolved (the answer settles what the question was checking), partly, concern (the answer raised a doubt) or not_asked.
 - Addressed: the pre-interview gaps and discrepancies the interview settled.
 - Concerns: those still open, plus anything new the interview raised (isNew). Use the attendees' notes too - say whose note it was.
+- Punctuality: the notes may record when the candidate reached the lobby and their punctuality across interviews, measured by the system. A pattern of lateness or missed interviews is a concern to name; being on time or early is a small positive. Never speculate about why.
 - Likelihood: a calibrated new estimate after this interview, starting from the pre-interview figure and moving it only as far as the evidence justifies. Suitability bands as before: strong 75+, good 55-74, possible 35-54, unlikely under 35.
 - Recommendations: practical next steps for the recruiter.
 

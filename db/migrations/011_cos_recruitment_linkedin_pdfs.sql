@@ -2,6 +2,11 @@
 -- the booking. The candidate overview compares it with the resume. One per
 -- booking (a new upload replaces it), held as base64 and written by the server
 -- only. Deleted with the rest of the interview's data after 12 months.
+-- Also when the candidate first reached the lobby, for the overview's
+-- punctuality history (early, on time, late, no-show).
+
+alter table public.cos_recruitment_bookings
+  add column candidate_arrived_at timestamptz;
 
 create table public.cos_recruitment_linkedin_pdfs (
   booking_id  uuid primary key references public.cos_recruitment_bookings (id) on delete cascade,

@@ -14,6 +14,7 @@ import { runDebrief } from "@/lib/candidate-debrief";
 import { getLinkedinCheck, linkedinCheckText, linkedinUrlFor, saveLinkedinCheck, type LinkedinCheck, type LinkedinOutcome } from "@/lib/linkedin-check";
 import { MAX_LINKEDIN_PDF_BYTES, removeLinkedinPdf, saveLinkedinPdf, type LinkedinPdf } from "@/lib/linkedin-pdf";
 import { regenerateCandidateReview } from "@/lib/candidate-review";
+import { arrivalText, candidateArrivals } from "@/lib/punctuality";
 import { createOwnerToken } from "@/lib/daily";
 import { demoMode } from "@/lib/demo";
 import { siteUrl } from "@/lib/invite";
@@ -126,12 +127,13 @@ export async function finishInterview(bookingId: string, outcome: "completed" | 
   // Who attended and everyone's notes (recruiter and client attendees) go to
   // the candidate's JobAdder record, each with the stage and date in front.
   after(async () => {
-    const [notes, attendees] = await Promise.all([listNotes(bookingId), listAttendees(bookingId)]);
+    const [notes, attendees, arrivals] = await Promise.all([listNotes(bookingId), listAttendees(bookingId), candidateArrivals(invite.jobadderCandidateId).catch(() => [])]);
+    const arrival = arrivals.find((a) => a.bookingId === bookingId);
     const prefix = stagePrefix(invite.interview.stage, invite.slotStart);
     const heading = `${stageLabel(invite.interview.stage)} notes${invite.interview.jobTitle ? ` - ${invite.interview.jobTitle}` : ""} (COSInterview)${outcome === "no_show" ? " - candidate didn't attend" : ""}`;
     await logToJobAdder(
       invite.jobadderCandidateId,
-      [heading, `${prefix} ${attendanceLine(attendees)}`, ...(notes.length ? ["", ...notes.map((n) => noteLine(prefix, n))] : [])].join("\n"),
+      [heading, `${prefix} ${attendanceLine(attendees)}`, ...(arrival ? [`${prefix} ${arrivalText(arrival, invite.recruiter.timezone)}`] : []), ...(notes.length ? ["", ...notes.map((n) => noteLine(prefix, n))] : [])].join("\n"),
     );
   });
 }

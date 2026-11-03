@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { getDebrief, likelihoodTimeline, NEXT_STEP_LABEL, OUTCOME_LABEL, type DebriefState, type TimelinePoint } from "@/lib/candidate-debrief";
 import { getLinkedinCheck, LINKEDIN_OUTCOME_LABEL, type LinkedinCheck } from "@/lib/linkedin-check";
 import { getCandidateReview, type ReviewState } from "@/lib/candidate-review";
+import { arrivalLabel, arrivalTrend, candidateArrivals, type Arrival, type ArrivalOutcome } from "@/lib/punctuality";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { SUITABILITY_LABEL, TOPIC_LABEL } from "@/lib/review-labels";
@@ -29,11 +30,12 @@ export default async function CandidateOverviewPage({ params }: Props) {
   const { recruiter } = await requireRecruiter();
   const invite = await findInviteById(id);
   if (!invite || invite.recruiter.id !== recruiter.id) notFound();
-  const [state, after, timeline, linkedinCheck] = await Promise.all([
+  const [state, after, timeline, linkedinCheck, arrivals] = await Promise.all([
     getCandidateReview(invite.bookingId),
     getDebrief(invite.bookingId),
     likelihoodTimeline(invite),
     getLinkedinCheck(invite.bookingId).catch(() => null),
+    candidateArrivals(invite.jobadderCandidateId).catch(() => []),
   ]);
   const zone = recruiter.timezone;
   const when = invite.slotStart ? DateTime.fromISO(invite.slotStart, { zone }).toFormat("cccc d LLLL, h:mm a") : "Not booked yet";
@@ -63,6 +65,8 @@ export default async function CandidateOverviewPage({ params }: Props) {
       </div>
 
       {timeline.length > 1 && <Timeline points={timeline} current={invite.bookingId} />}
+
+      {arrivals.length > 0 && <Punctuality arrivals={arrivals} current={invite.bookingId} zone={zone} />}
 
       {invite.status === "completed" && (
         <AfterInterview state={after} bookingId={invite.bookingId} before={state.review?.likelihoodPercent ?? null} zone={zone} />
@@ -406,6 +410,40 @@ function AfterInterview({ state, bookingId, before, zone }: { state: DebriefStat
 
 // The likelihood through every interview round for this candidate and job:
 // before (light) and after (dark) each interview.
+const ARRIVAL_STYLE: Record<ArrivalOutcome, string> = {
+  early: "bg-emerald-50 text-emerald-800",
+  on_time: "bg-emerald-50 text-emerald-800",
+  late: "bg-amber-50 text-amber-800",
+  no_show: "bg-red-50 text-red-800",
+};
+
+// When the candidate reached the lobby for each interview, on any job.
+function Punctuality({ arrivals, current, zone }: { arrivals: Arrival[]; current: string; zone: string }) {
+  const trend = arrivalTrend(arrivals);
+  const time = (iso: string) => DateTime.fromISO(iso, { zone }).toFormat("h:mm a");
+  return (
+    <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <h2 className="text-sm font-semibold text-neutral-900">Punctuality</h2>
+      <p className="mt-0.5 text-xs text-neutral-500">When the candidate reached the lobby for each interview. Within 2 minutes of the start counts as on time.</p>
+      {trend && <p className={`mt-3 text-sm font-medium ${trend.concern ? "text-amber-800" : "text-emerald-800"}`}>{trend.text}</p>}
+      <ul className="mt-3 divide-y divide-neutral-100 text-sm">
+        {arrivals.map((a) => (
+          <li key={a.bookingId} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
+            <span className={`text-neutral-700 ${a.bookingId === current ? "font-semibold" : ""}`}>
+              {stageLabel(a.stage)}
+              {a.jobTitle && <span className="font-normal text-neutral-500"> · {a.jobTitle}</span>}
+            </span>
+            <span className="flex items-center gap-3 text-xs text-neutral-500">
+              {DateTime.fromISO(a.slotStart, { zone }).toFormat("d LLL")}: {a.arrivedAt ? `joined ${time(a.arrivedAt)} for ${time(a.slotStart)}` : `booked for ${time(a.slotStart)}`}
+              <span className={`rounded-full px-2 py-0.5 font-medium ${ARRIVAL_STYLE[a.outcome]}`}>{arrivalLabel(a)}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Timeline({ points, current }: { points: TimelinePoint[]; current: string }) {
   return (
     <section className="rounded-lg border border-neutral-200 bg-white p-5">

@@ -1,6 +1,7 @@
 import "server-only";
 import { getCandidateReview, listReviewSummaries } from "./candidate-review";
 import { getLinkedinCheck, linkedinCheckText } from "./linkedin-check";
+import { arrivalText, arrivalTrend, candidateArrivals } from "./punctuality";
 import { demoInvites, demoMode } from "./demo";
 import { SUITABILITY_LABEL } from "./review-labels";
 import { logToJobAdder } from "./staff/jobadder-api";
@@ -95,11 +96,14 @@ export async function runDebrief(invite: InviteRecord, transcript?: string): Pro
     const text = transcript ?? (await loadTranscript(invite.bookingId));
     if (!text) return "skipped";
     await save(invite.bookingId, { debrief_status: "running", debrief_error: null });
-    const [before, notes, linkedin] = await Promise.all([
+    const [before, notes, linkedin, arrivals] = await Promise.all([
       getCandidateReview(invite.bookingId),
       listNotes(invite.bookingId),
       getLinkedinCheck(invite.bookingId).catch(() => null),
+      candidateArrivals(invite.jobadderCandidateId).catch(() => []),
     ]);
+    const arrival = arrivals.find((a) => a.bookingId === invite.bookingId);
+    const trend = arrivalTrend(arrivals);
     const debrief = await debriefCandidate({
       jobTitle: invite.interview.jobTitle,
       clientName: invite.interview.clientName,
@@ -107,7 +111,12 @@ export async function runDebrief(invite: InviteRecord, transcript?: string): Pro
       stage: stageLabel(invite.interview.stage),
       before: before.status === "done" ? before.review : null,
       transcript: text,
-      notes: [...(linkedin ? [linkedinCheckText(linkedin)] : []), ...notes.map((n) => noteLine("", n).trim())],
+      notes: [
+        ...(arrival ? [arrivalText(arrival, invite.recruiter.timezone)] : []),
+        ...(trend ? [`Punctuality across interviews: ${trend.text}`] : []),
+        ...(linkedin ? [linkedinCheckText(linkedin)] : []),
+        ...notes.map((n) => noteLine("", n).trim()),
+      ],
     });
     await save(invite.bookingId, { debrief, debrief_status: "done", debrief_error: null, debrief_model: SUMMARY_MODEL });
     await logToJobAdder(invite.jobadderCandidateId, debriefNoteText(invite, debrief, before.review?.likelihoodPercent ?? null));
