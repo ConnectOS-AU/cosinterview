@@ -11,8 +11,7 @@ import { downloadResumeVersion, listResumeVersions, versionForClient } from "@/l
 import { sendCandidateMail, type MailAttachment } from "@/lib/mail";
 import { htmlToText } from "@/lib/review-inputs";
 import { runDebrief } from "@/lib/candidate-debrief";
-import { getLinkedinCheck, linkedinCheckText, linkedinUrlFor, saveLinkedinCheck, type LinkedinCheck, type LinkedinOutcome } from "@/lib/linkedin-check";
-import { getLinkedinPdf, MAX_LINKEDIN_PDF_BYTES, removeLinkedinPdf, saveLinkedinPdf, type LinkedinPdf } from "@/lib/linkedin-pdf";
+import { MAX_LINKEDIN_PDF_BYTES, removeLinkedinPdf, saveLinkedinPdf, type LinkedinPdf } from "@/lib/linkedin-pdf";
 import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { arrivalText, candidateArrivals } from "@/lib/punctuality";
 import { createOwnerToken } from "@/lib/daily";
@@ -51,11 +50,6 @@ export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
     if (invite.status !== "booked" && invite.status !== "in_progress") {
       return { ok: false, error: "This interview isn't booked." };
     }
-    // The LinkedIn check is mandatory when there's a profile to check, unless
-    // the PDF is uploaded: the candidate overview then does the comparison.
-    if (!(await getLinkedinCheck(bookingId)) && !(await getLinkedinPdf(bookingId)) && (await linkedinUrlFor(invite))) {
-      return { ok: false, error: "Record the LinkedIn check before joining." };
-    }
     const room = await roomForBooking(invite);
     if (!room) return { ok: true, roomUrl: null, token: null };
     // An admin working as this recruiter joins under their own name, still on the
@@ -67,32 +61,6 @@ export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
   } catch (err) {
     console.error("[recruiter join]", bookingId, err);
     return { ok: false, error: "Couldn't open the interview room. Please try again." };
-  }
-}
-
-// The recruiter's comparison of the candidate's LinkedIn profile with their
-// resume, required before joining when there's a profile. Added to JobAdder.
-export async function recordLinkedinCheck(
-  bookingId: string,
-  outcome: LinkedinOutcome,
-  note: string,
-): Promise<{ ok: true; check: LinkedinCheck } | { ok: false; error: string }> {
-  try {
-    const { staff, invite } = await ownBooking(bookingId);
-    const url = await linkedinUrlFor(invite);
-    if (!url) return { ok: false, error: "There's no LinkedIn profile to check for this candidate." };
-    if (outcome !== "matches" && outcome !== "differences" && outcome !== "not_found") return { ok: false, error: "Choose what you found." };
-    const text = note.trim().slice(0, 1000) || null;
-    if (outcome !== "matches" && !text) {
-      return { ok: false, error: outcome === "differences" ? "Say what's different." : "Say what happened when you tried to open it." };
-    }
-    const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
-    const check: LinkedinCheck = { url, outcome, note: text, checkedBy: name, checkedAt: new Date().toISOString() };
-    await saveLinkedinCheck(bookingId, check);
-    after(() => logToJobAdder(invite.jobadderCandidateId, `${stagePrefix(invite.interview.stage, invite.slotStart)} ${linkedinCheckText(check)}`));
-    return { ok: true, check };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
   }
 }
 
@@ -210,7 +178,6 @@ export async function uploadLinkedinPdf(
     const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
     const pdf = await saveLinkedinPdf(bookingId, file.name.slice(0, 200), bytes, name);
     refreshOverview(invite);
-    revalidatePath(`/r/bookings/${bookingId}`);
     return { ok: true, pdf };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
@@ -222,7 +189,6 @@ export async function deleteLinkedinPdf(bookingId: string): Promise<{ ok: true }
     const { invite } = await ownBooking(bookingId);
     await removeLinkedinPdf(bookingId);
     refreshOverview(invite);
-    revalidatePath(`/r/bookings/${bookingId}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };

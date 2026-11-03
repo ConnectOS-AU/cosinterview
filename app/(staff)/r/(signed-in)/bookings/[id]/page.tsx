@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
 import { listAttendees, type Attendee } from "@/lib/attendance";
 import { getCandidateReview } from "@/lib/candidate-review";
-import { getLinkedinCheck, linkedinUrlFor } from "@/lib/linkedin-check";
 import { getLinkedinPdf } from "@/lib/linkedin-pdf";
 import { clientResumeId, listGuests } from "@/lib/guests";
 import { listResumeVersions } from "@/lib/resumes";
@@ -34,15 +33,13 @@ export default async function BookingPage({ params }: Props) {
 
   const live = invite.status !== "completed";
   const clientStage = isClientStage(invite.interview.stage);
-  const [notes, review, guests, resumes, resumeChoice, attendees, linkedinUrl, linkedinCheck, linkedinPdf] = await Promise.all([
+  const [notes, review, guests, resumes, resumeChoice, attendees, linkedinPdf] = await Promise.all([
     listNotes(invite.bookingId),
     live ? getCandidateReview(invite.bookingId) : null,
     listGuests(invite.bookingId),
     listResumeVersions(invite.jobadderCandidateId),
     clientStage ? clientResumeId(invite.bookingId) : null,
     listAttendees(invite.bookingId),
-    live ? linkedinUrlFor(invite).catch(() => null) : null,
-    live ? getLinkedinCheck(invite.bookingId) : null,
     getLinkedinPdf(invite.bookingId),
   ]);
   const zone = recruiter.timezone;
@@ -114,7 +111,6 @@ export default async function BookingPage({ params }: Props) {
           canJoin={invite.status === "booked" || invite.status === "in_progress"}
           initialNotes={notes}
           notePrefix={stagePrefix(invite.interview.stage, invite.slotStart)}
-          linkedin={linkedinUrl && !linkedinPdf ? { url: linkedinUrl, check: linkedinCheck } : null}
           slot={invite.slotStart && invite.slotEnd ? { start: invite.slotStart, end: invite.slotEnd, zone: recruiter.timezone } : null}
           aside={
             <InterviewAside

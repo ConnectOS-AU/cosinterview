@@ -234,7 +234,7 @@ function Review({
                 ) : sources.linkedinPdfFile ? (
                   <span className="text-xs text-neutral-500">- compared from the uploaded PDF.</span>
                 ) : (
-                  <span className="text-xs text-amber-700">- not read automatically (LinkedIn doesn&apos;t allow it). The recruiter must upload the PDF or check it before joining the interview.</span>
+                  <span className="text-xs text-amber-700">- not read automatically (LinkedIn doesn&apos;t allow it). Upload the profile PDF on the interview screen to compare it with the resume.</span>
                 )}
               </>
             ) : (
