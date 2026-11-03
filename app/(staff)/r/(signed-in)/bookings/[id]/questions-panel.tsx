@@ -119,7 +119,7 @@ export function QuestionsPanel({
               ? "The candidate overview is still being written - its questions will show here when you reload."
               : reviewStatus === "failed"
                 ? "The candidate overview couldn't be written, so there are no questions. Try again from the overview."
-                : "No questions yet. They come from the candidate overview, written after the candidate books."}
+                : "No questions yet. They come from the candidate overview, written after the candidate is invited."}
           </p>
         )}
       </div>

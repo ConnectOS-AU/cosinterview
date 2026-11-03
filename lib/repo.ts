@@ -247,6 +247,7 @@ export async function releaseBooking(
     .update({
       status: next.status,
       slot_start: null,
+      candidate_arrived_at: null,
       slot_end: null,
       daily_room_name: null,
       daily_room_url: null,

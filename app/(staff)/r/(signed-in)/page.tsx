@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function InterviewsPage() {
   const { recruiter } = await requireRecruiter();
   const bookings = await listBookingsForRecruiter(recruiter.id);
-  const reviews = await listReviewSummaries(bookings.filter((b) => b.status !== "invited" && b.status !== "cancelled").map((b) => b.bookingId));
+  const reviews = await listReviewSummaries(bookings.map((b) => b.bookingId));
   const now = DateTime.utc();
 
   const isOpen = (b: BookingSummary) =>
@@ -86,10 +86,15 @@ function Section({
                 return (
                   <tr key={b.bookingId} className="hover:bg-neutral-50">
                     <td className="px-4 py-3 font-medium text-neutral-900">
-                      <Link href={`/r/bookings/${b.bookingId}`} className="hover:underline">
-                        {b.candidateName}
-                      </Link>
-                      <span className="block text-xs font-normal text-neutral-500">{stageLabel(b.stage)}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                        <div>
+                          <Link href={`/r/bookings/${b.bookingId}`} className="hover:underline">
+                            {b.candidateName}
+                          </Link>
+                          <span className="block text-xs font-normal text-neutral-500">{stageLabel(b.stage)}</span>
+                        </div>
+                        <OverviewLink bookingId={b.bookingId} review={reviews.get(b.bookingId)} />
+                      </div>
                     </td>
                     <td className="hidden px-4 py-3 text-neutral-700 sm:table-cell">
                       {b.jobTitle ?? "—"}
@@ -110,9 +115,6 @@ function Section({
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-start justify-end gap-2">
                         <BookingActions bookingId={b.bookingId} status={b.status} canEmail={canEmail} />
-                        {b.status !== "invited" && b.status !== "cancelled" && (
-                          <OverviewLink bookingId={b.bookingId} review={reviews.get(b.bookingId)} />
-                        )}
                         {b.status !== "invited" && b.status !== "cancelled" && (
                           <Link
                             href={`/r/bookings/${b.bookingId}`}
@@ -138,16 +140,20 @@ function Section({
   );
 }
 
-// The pre-interview candidate overview, with its likelihood once written.
-function OverviewLink({ bookingId, review }: { bookingId: string; review?: { status: string; likelihood: number | null } }) {
+// The candidate overview, with the latest likelihood: after the interview once
+// that's written, otherwise from before it.
+function OverviewLink({ bookingId, review }: { bookingId: string; review?: { status: string; likelihood: number | null; afterInterview?: number | null } }) {
+  const likelihood = review?.afterInterview ?? review?.likelihood ?? null;
   const tag =
-    review?.status === "done"
-      ? review.likelihood === null
+    likelihood !== null
+      ? `${likelihood}%`
+      : review?.status === "done"
         ? "no info"
-        : `${review.likelihood}%`
-      : review?.status === "pending" || review?.status === "running"
-        ? "writing…"
-        : null;
+        : review?.status === "pending" || review?.status === "running"
+          ? "writing…"
+          : review?.status === "failed"
+            ? "not written"
+            : null;
   return (
     <Link
       href={`/r/bookings/${bookingId}/overview`}

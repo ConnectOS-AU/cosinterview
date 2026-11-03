@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { getDebrief, likelihoodTimeline, NEXT_STEP_LABEL, OUTCOME_LABEL, type DebriefState, type TimelinePoint } from "@/lib/candidate-debrief";
 import { getLinkedinCheck, LINKEDIN_OUTCOME_LABEL, type LinkedinCheck } from "@/lib/linkedin-check";
 import { getCandidateReview, type ReviewState } from "@/lib/candidate-review";
+import { arrivalLabel, arrivalTrend, candidateArrivals, type Arrival, type ArrivalOutcome } from "@/lib/punctuality";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { SUITABILITY_LABEL, TOPIC_LABEL } from "@/lib/review-labels";
@@ -29,11 +30,12 @@ export default async function CandidateOverviewPage({ params }: Props) {
   const { recruiter } = await requireRecruiter();
   const invite = await findInviteById(id);
   if (!invite || invite.recruiter.id !== recruiter.id) notFound();
-  const [state, after, timeline, linkedinCheck] = await Promise.all([
+  const [state, after, timeline, linkedinCheck, arrivals] = await Promise.all([
     getCandidateReview(invite.bookingId),
     getDebrief(invite.bookingId),
     likelihoodTimeline(invite),
     getLinkedinCheck(invite.bookingId).catch(() => null),
+    candidateArrivals(invite.jobadderCandidateId).catch(() => []),
   ]);
   const zone = recruiter.timezone;
   const when = invite.slotStart ? DateTime.fromISO(invite.slotStart, { zone }).toFormat("cccc d LLLL, h:mm a") : "Not booked yet";
@@ -64,6 +66,8 @@ export default async function CandidateOverviewPage({ params }: Props) {
 
       {timeline.length > 1 && <Timeline points={timeline} current={invite.bookingId} />}
 
+      {arrivals.length > 0 && <Punctuality arrivals={arrivals} current={invite.bookingId} zone={zone} />}
+
       {invite.status === "completed" && (
         <AfterInterview state={after} bookingId={invite.bookingId} before={state.review?.likelihoodPercent ?? null} zone={zone} />
       )}
@@ -72,8 +76,8 @@ export default async function CandidateOverviewPage({ params }: Props) {
         <h2 className="pt-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">Before the interview</h2>
       )}
 
-      {!booked ? (
-        <Notice>The overview is written once the candidate books a time.</Notice>
+      {invite.status === "cancelled" && state.status === "none" ? (
+        <Notice>This interview was cancelled before an overview was written.</Notice>
       ) : state.status === "done" && state.review ? (
         <Review state={state} review={state.review} bookingId={invite.bookingId} zone={zone} linkedinCheck={linkedinCheck} />
       ) : state.status === "pending" || state.status === "running" ? (
@@ -89,7 +93,7 @@ export default async function CandidateOverviewPage({ params }: Props) {
         </Notice>
       ) : (
         <Notice>
-          <p>No overview yet. It&apos;s written automatically after booking, or you can write it now.</p>
+          <p>No overview yet. It&apos;s written automatically after the invite, or you can write it now.</p>
           <ReviewControls bookingId={invite.bookingId} label="Write the overview now" waiting={false} />
         </Notice>
       )}
@@ -166,6 +170,22 @@ function Review({
         </Card>
       </div>
 
+      {review.linkedinComparison && (
+        <Card title="LinkedIn profile compared with the resume">
+          <p className="max-w-3xl text-sm leading-relaxed text-neutral-700">{review.linkedinComparison.summary}</p>
+          <div className="mt-4 grid gap-5 lg:grid-cols-2">
+            <div>
+              <h3 className="mb-2 text-xs font-semibold text-emerald-800">Matches</h3>
+              <List items={review.linkedinComparison.matches} empty="Nothing matched." />
+            </div>
+            <div>
+              <h3 className="mb-2 text-xs font-semibold text-red-800">Differences</h3>
+              <Points items={review.linkedinComparison.differences} empty="No differences found." />
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card title="Questions to ask">
         <p className="-mt-2 mb-3 text-xs text-neutral-500">Also shown beside the video on the interview screen, to read to the candidate.</p>
         <ol className="space-y-3">
@@ -189,6 +209,16 @@ function Review({
           <li>Resume: {sources?.resumeFile ?? <span className="text-amber-700">{sources?.resumeProblem ?? "not found"}</span>}</li>
           <li>JobAdder notes: {sources?.jobadderNotes ?? 0}</li>
           <li>Job description: {sources?.jobDescription ? "from JobAdder" : <span className="text-amber-700">none in JobAdder - judged on the job title</span>}</li>
+          <li>
+            LinkedIn PDF:{" "}
+            {sources?.linkedinPdfFile ? (
+              <a href={`/r/bookings/${bookingId}/linkedin-pdf`} target="_blank" rel="noopener" className="font-medium text-neutral-900 underline">
+                {sources.linkedinPdfFile}
+              </a>
+            ) : (
+              "none uploaded"
+            )}
+          </li>
           <li>
             LinkedIn:{" "}
             {sources?.linkedinUrl ? (
@@ -380,6 +410,40 @@ function AfterInterview({ state, bookingId, before, zone }: { state: DebriefStat
 
 // The likelihood through every interview round for this candidate and job:
 // before (light) and after (dark) each interview.
+const ARRIVAL_STYLE: Record<ArrivalOutcome, string> = {
+  early: "bg-emerald-50 text-emerald-800",
+  on_time: "bg-emerald-50 text-emerald-800",
+  late: "bg-amber-50 text-amber-800",
+  no_show: "bg-red-50 text-red-800",
+};
+
+// When the candidate reached the lobby for each interview, on any job.
+function Punctuality({ arrivals, current, zone }: { arrivals: Arrival[]; current: string; zone: string }) {
+  const trend = arrivalTrend(arrivals);
+  const time = (iso: string) => DateTime.fromISO(iso, { zone }).toFormat("h:mm a");
+  return (
+    <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <h2 className="text-sm font-semibold text-neutral-900">Punctuality</h2>
+      <p className="mt-0.5 text-xs text-neutral-500">When the candidate reached the lobby for each interview. Within 2 minutes of the start counts as on time.</p>
+      {trend && <p className={`mt-3 text-sm font-medium ${trend.concern ? "text-amber-800" : "text-emerald-800"}`}>{trend.text}</p>}
+      <ul className="mt-3 divide-y divide-neutral-100 text-sm">
+        {arrivals.map((a) => (
+          <li key={a.bookingId} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
+            <span className={`text-neutral-700 ${a.bookingId === current ? "font-semibold" : ""}`}>
+              {stageLabel(a.stage)}
+              {a.jobTitle && <span className="font-normal text-neutral-500"> · {a.jobTitle}</span>}
+            </span>
+            <span className="flex items-center gap-3 text-xs text-neutral-500">
+              {DateTime.fromISO(a.slotStart, { zone }).toFormat("d LLL")}: {a.arrivedAt ? `joined ${time(a.arrivedAt)} for ${time(a.slotStart)}` : `booked for ${time(a.slotStart)}`}
+              <span className={`rounded-full px-2 py-0.5 font-medium ${ARRIVAL_STYLE[a.outcome]}`}>{arrivalLabel(a)}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Timeline({ points, current }: { points: TimelinePoint[]; current: string }) {
   return (
     <section className="rounded-lg border border-neutral-200 bg-white p-5">

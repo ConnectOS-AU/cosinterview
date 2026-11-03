@@ -6,17 +6,17 @@ import { requireRecruiter } from "@/lib/staff/auth";
 
 export const dynamic = "force-dynamic";
 
-// Any version of the candidate's resume (original or formatted), for the
-// recruiter running this interview.
+// Any version of the candidate's resume (original or formatted) or their cover
+// letter, for the recruiter running this interview.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string; version: string }> }) {
   const { id, version: versionId } = await params;
   const { recruiter } = await requireRecruiter();
   const invite = await findInviteById(id);
   if (!invite || invite.recruiter.id !== recruiter.id) return resumeNotice("Interview not found.", 404);
 
-  const { versions } = await listResumeVersions(invite.jobadderCandidateId);
-  const version = versions.find((v) => v.id === versionId);
-  if (!version) return resumeNotice("That resume isn't on the candidate's JobAdder record any more.", 404);
+  const { versions, coverLetters } = await listResumeVersions(invite.jobadderCandidateId);
+  const version = [...versions, ...coverLetters].find((v) => v.id === versionId);
+  if (!version) return resumeNotice("That document isn't on the candidate's JobAdder record any more.", 404);
   if (demoMode()) return demoResume(invite.candidateName, version.fileName);
   try {
     return await resumeResponse(await downloadResumeVersion(invite.jobadderCandidateId, version));

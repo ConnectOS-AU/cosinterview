@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { cancellationEmail, candidateVars, type EmailContent, formatSlot, inviteEmail, messageText, onWhen } from "@/lib/emails";
+import { processDueReviews } from "@/lib/candidate-review";
 import { deleteInterviewEvent, graphConfigured } from "@/lib/graph";
 import { siteUrl } from "@/lib/invite";
 import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
@@ -21,6 +22,7 @@ import type { InviteRecord, NewInvite, RecruiterProfile } from "@/lib/types";
 const INVITE_DAYS = 14;
 const MAX_PER_BATCH = 50;
 const MAX_MESSAGE = 1000;
+const FIRST_OVERVIEWS = 5;
 
 const inviteExpiry = (iso: string) => DateTime.fromISO(iso).setZone("Asia/Manila").toFormat("d LLLL yyyy");
 
@@ -158,6 +160,8 @@ export async function createInvitations(input: {
   // JobAdder: the invite went out (or the link was handed over to send).
   after(async () => {
     for (const n of notes) await logToJobAdder(n.candidateId, n.text);
+    // Their candidate overviews: the first few now, the worker does any others.
+    await processDueReviews(FIRST_OVERVIEWS).catch((err) => console.error("[invite] Writing overviews failed", err));
   });
 
   revalidatePath("/r");

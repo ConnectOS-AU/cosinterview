@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { listAttendees, type Attendee } from "@/lib/attendance";
 import { getCandidateReview } from "@/lib/candidate-review";
 import { getLinkedinCheck, linkedinUrlFor } from "@/lib/linkedin-check";
+import { getLinkedinPdf } from "@/lib/linkedin-pdf";
 import { clientResumeId, listGuests } from "@/lib/guests";
 import { listResumeVersions } from "@/lib/resumes";
 import { mailConfigured } from "@/lib/mail";
@@ -19,7 +20,7 @@ import { InterviewRecordView } from "./interview-record";
 import { InterviewScreen } from "./interview-screen";
 import { InterviewAside } from "./interview-aside";
 import { GuestsPanel } from "./guests-panel";
-import { ResumesPanel } from "./resumes-panel";
+import { DocumentsPanel } from "./documents-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export default async function BookingPage({ params }: Props) {
 
   const live = invite.status !== "completed";
   const clientStage = isClientStage(invite.interview.stage);
-  const [notes, review, guests, resumes, resumeChoice, attendees, linkedinUrl, linkedinCheck] = await Promise.all([
+  const [notes, review, guests, resumes, resumeChoice, attendees, linkedinUrl, linkedinCheck, linkedinPdf] = await Promise.all([
     listNotes(invite.bookingId),
     live ? getCandidateReview(invite.bookingId) : null,
     listGuests(invite.bookingId),
@@ -42,6 +43,7 @@ export default async function BookingPage({ params }: Props) {
     listAttendees(invite.bookingId),
     live ? linkedinUrlFor(invite).catch(() => null) : null,
     live ? getLinkedinCheck(invite.bookingId) : null,
+    getLinkedinPdf(invite.bookingId),
   ]);
   const zone = recruiter.timezone;
   const badge = STATUS_BADGE[invite.status];
@@ -71,14 +73,9 @@ export default async function BookingPage({ params }: Props) {
           )}
         </div>
         <div className="flex items-start gap-2">
-          {invite.status !== "invited" && invite.status !== "cancelled" && (
-            <Link
-              href={`/r/bookings/${invite.bookingId}/overview`}
-              className={ROW_BUTTON}
-            >
-              Candidate overview
-            </Link>
-          )}
+          <Link href={`/r/bookings/${invite.bookingId}/overview`} className={ROW_BUTTON}>
+            Candidate overview
+          </Link>
           <BookingActions bookingId={invite.bookingId} status={invite.status} canEmail={mailConfigured()} />
           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${badge.className}`}>{badge.label}</span>
         </div>
@@ -96,12 +93,15 @@ export default async function BookingPage({ params }: Props) {
             clientStage={clientStage}
           />
         )}
-        <ResumesPanel
+        <DocumentsPanel
           bookingId={invite.bookingId}
           versions={resumes.versions}
+          coverLetters={resumes.coverLetters}
           problem={resumes.problem}
           clientChoice={resumeChoice}
           forClients={invite.status !== "cancelled" && invite.status !== "completed" && invite.status !== "no_show"}
+          linkedinPdf={linkedinPdf}
+          canUpload={invite.status !== "cancelled"}
         />
       </div>
 

@@ -1,19 +1,20 @@
 import "server-only";
 import { demoMode } from "./demo";
+import { getLinkedinPdf } from "./linkedin-pdf";
 import { findInviteById } from "./repo";
 import { gatherReviewInputs, type ReviewInputs } from "./review-inputs";
 import { jobAdderWriteConfigured, logToJobAdder } from "./staff/jobadder-api";
 import { supabaseAdmin } from "./supabase/admin";
 import type { InviteRecord } from "./types";
 import { SUITABILITY_LABEL } from "./review-labels";
-import { reviewCandidate, type CandidateReview } from "./worker/review";
+import { reviewCandidate, type CandidateReview, type LinkedinComparison } from "./worker/review";
 import { SUMMARY_MODEL, summaryConfigured } from "./worker/summarise";
 
-// The candidate overview: once an interview is booked, Claude reviews the
-// candidate against the job description (lib/worker/review.ts). The result is
-// kept per booking, shown on /r/bookings/<id>/overview and beside the
-// interview, and added to the candidate's JobAdder notes. Runs right after
-// booking; /api/worker/run retries failures and picks up anything missed.
+// The candidate overview: once a candidate is invited, Claude reviews them
+// against the job description (lib/worker/review.ts). The result is kept per
+// booking, shown on /r/bookings/<id>/overview, on the interview list and beside
+// the interview, and added to the candidate's JobAdder notes. Starts right after
+// the invite; /api/worker/run retries failures and picks up anything missed.
 
 const MAX_ATTEMPTS = 3;
 
@@ -23,6 +24,7 @@ export type ReviewSources = {
   jobadderNotes: number;
   jobDescription: boolean;
   linkedinUrl: string | null;
+  linkedinPdfFile?: string | null;
 };
 
 export type ReviewState = {
@@ -81,9 +83,12 @@ export async function getCandidateReview(bookingId: string): Promise<ReviewState
   return data ? toState(data as Row) : NONE;
 }
 
-// For the interview list: each booking's review status and likelihood.
-export async function listReviewSummaries(bookingIds: string[]): Promise<Map<string, { status: ReviewState["status"]; likelihood: number | null }>> {
-  const out = new Map<string, { status: ReviewState["status"]; likelihood: number | null }>();
+// For the interview list: each booking's review status and likelihood, with
+// the post-interview likelihood once there is one.
+type ReviewSummary = { status: ReviewState["status"]; likelihood: number | null; afterInterview?: number | null };
+
+export async function listReviewSummaries(bookingIds: string[]): Promise<Map<string, ReviewSummary>> {
+  const out = new Map<string, ReviewSummary>();
   if (bookingIds.length === 0) return out;
   if (demoMode()) {
     for (const id of bookingIds) {
@@ -94,11 +99,15 @@ export async function listReviewSummaries(bookingIds: string[]): Promise<Map<str
   }
   const { data, error } = await supabaseAdmin()
     .from("cos_recruitment_candidate_reviews")
-    .select("booking_id, status, likelihood:result->likelihoodPercent")
+    .select("booking_id, status, debrief_status, likelihood:result->likelihoodPercent, after:debrief->likelihoodPercent")
     .in("booking_id", bookingIds);
   if (error) throw new Error(`Review list failed: ${error.message}`);
   for (const r of data ?? []) {
-    out.set(r.booking_id as string, { status: r.status as ReviewState["status"], likelihood: typeof r.likelihood === "number" ? r.likelihood : null });
+    out.set(r.booking_id as string, {
+      status: r.status as ReviewState["status"],
+      likelihood: typeof r.likelihood === "number" ? r.likelihood : null,
+      afterInterview: r.debrief_status === "done" && typeof r.after === "number" ? r.after : null,
+    });
   }
   return out;
 }
@@ -126,6 +135,7 @@ function sourcesOf(inputs: ReviewInputs, review: CandidateReview | null): Review
     jobadderNotes: inputs.notes.length,
     jobDescription: Boolean(inputs.jobDescription),
     linkedinUrl: inputs.application.linkedinUrl ?? review?.linkedinUrl ?? null,
+    linkedinPdfFile: inputs.linkedinPdf?.fileName ?? null,
   };
 }
 
@@ -179,22 +189,24 @@ export async function regenerateCandidateReview(invite: InviteRecord): Promise<"
   return runCandidateReview(invite);
 }
 
-// Worker: reviews for upcoming interviews that are missing, failed (under the
-// attempt limit) or stuck. A few per run, since each takes a while.
+// Worker: reviews for upcoming interviews and open invites that are missing,
+// failed (under the attempt limit) or stuck. A few per run, since each takes a
+// while.
 export async function processDueReviews(limit = 3): Promise<number> {
   if (demoMode() || !summaryConfigured()) return 0;
-  const { data, error } = await supabaseAdmin()
-    .from("cos_recruitment_bookings")
-    .select("id, review:cos_recruitment_candidate_reviews(status, attempts, started_at)")
-    .in("status", ["booked", "in_progress"])
-    .gt("slot_end", new Date().toISOString())
-    .order("slot_start")
-    .limit(200);
+  const now = new Date().toISOString();
+  const bookings = () => supabaseAdmin().from("cos_recruitment_bookings").select("id, review:cos_recruitment_candidate_reviews(status, attempts, started_at)");
+  const [booked, invited] = await Promise.all([
+    bookings().in("status", ["booked", "in_progress"]).gt("slot_end", now).order("slot_start").limit(200),
+    bookings().eq("status", "invited").gt("invite_expires_at", now).limit(200),
+  ]);
+  const error = booked.error ?? invited.error;
   if (error) throw new Error(`Due reviews lookup failed: ${error.message}`);
+  const data = [...(booked.data ?? []), ...(invited.data ?? [])];
 
   const stuckBefore = Date.now() - 15 * 60_000;
   type Embedded = { status: Row["status"]; attempts: number; started_at: string | null };
-  const due = (data ?? []).filter((b) => {
+  const due = data.filter((b) => {
     const raw = b.review as Embedded | Embedded[] | null;
     const r = Array.isArray(raw) ? raw[0] : raw;
     if (!r) return true;
@@ -220,7 +232,9 @@ export function reviewNoteText(invite: InviteRecord, review: CandidateReview, so
     `${sources.jobadderNotes} JobAdder note${sources.jobadderNotes === 1 ? "" : "s"}`,
     sources.jobDescription ? "the job description" : "the job title (no job description in JobAdder)",
     "application answers",
+    ...(sources.linkedinPdfFile ? [`LinkedIn PDF (${sources.linkedinPdfFile})`] : []),
   ].join(", ");
+  const compared = review.linkedinComparison;
   return [
     `Candidate overview before interview - COSInterview (AI-assisted, advisory only)${invite.interview.jobTitle ? ` for ${invite.interview.jobTitle}` : ""}.`,
     review.likelihoodPercent === null
@@ -231,8 +245,9 @@ export function reviewNoteText(invite: InviteRecord, review: CandidateReview, so
     `Positives\n${list(review.positives)}`,
     `Gaps\n${points(review.gaps)}`,
     `Discrepancies\n${points(review.discrepancies)}`,
+    ...(compared ? [`LinkedIn comparison\n${compared.summary}\nMatches\n${list(compared.matches)}\nDifferences\n${points(compared.differences)}`] : []),
     `Questions to ask\n${review.questions.map((q, i) => `${i + 1}. ${q.question} (${q.purpose})`).join("\n")}`,
-    `Based on: ${based}.${sources.linkedinUrl ? `\nLinkedIn: ${sources.linkedinUrl} - not reviewed automatically; check it before the interview.` : ""}`,
+    `Based on: ${based}.${sources.linkedinUrl ? `\nLinkedIn: ${sources.linkedinUrl}${sources.linkedinPdfFile ? "" : " - not reviewed automatically; check it before the interview."}` : ""}`,
   ].join("\n\n");
 }
 
@@ -295,6 +310,15 @@ const DEMO_REVIEW: CandidateReview = {
   linkedinUrl: "https://www.linkedin.com/in/maria-santos-example",
 };
 
+const DEMO_COMPARISON: LinkedinComparison = {
+  summary: "The profile mostly agrees with the resume, but the start date of the current role and one certification differ.",
+  matches: ["Current employer and job title are the same on both.", "Bachelor's degree and university are the same on both."],
+  differences: [
+    { point: "Current role start", detail: "The resume says March 2022; LinkedIn says January 2023." },
+    { point: "Certification", detail: "The resume lists a customer service certificate that isn't on LinkedIn." },
+  ],
+};
+
 // Someone the team knows nothing about yet: no resume, no notes.
 const DEMO_UNKNOWN: CandidateReview = {
   suitability: "insufficient",
@@ -316,16 +340,18 @@ const DEMO_UNKNOWN: CandidateReview = {
   linkedinUrl: null,
 };
 
-function runDemoReview(invite: InviteRecord): "done" {
+async function runDemoReview(invite: InviteRecord): Promise<"done"> {
   if (demoReviews.get(invite.bookingId)?.status === "done") return "done";
   const known = invite.jobadderCandidateId === "5001";
-  const review = known ? DEMO_REVIEW : DEMO_UNKNOWN;
+  const pdf = await getLinkedinPdf(invite.bookingId);
+  const review = { ...(known ? DEMO_REVIEW : DEMO_UNKNOWN), linkedinComparison: pdf ? DEMO_COMPARISON : null };
   const sources: ReviewSources = {
     resumeFile: known ? "Maria Santos CV.pdf" : null,
     resumeProblem: known ? null : "No resume on JobAdder.",
     jobadderNotes: known ? 3 : 0,
     jobDescription: invite.interview.jobadderJobId === "1001",
     linkedinUrl: review.linkedinUrl,
+    linkedinPdfFile: pdf?.fileName ?? null,
   };
   const now = new Date().toISOString();
   demoReviews.set(invite.bookingId, {

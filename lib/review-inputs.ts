@@ -2,6 +2,7 @@ import "server-only";
 import mammoth from "mammoth";
 import sanitizeHtml from "sanitize-html";
 import { getJobDescription } from "./job-description";
+import { linkedinPdfContent } from "./linkedin-pdf";
 import { downloadResumeVersion, listResumeVersions, versionForReview, type ResumeFile } from "./resumes";
 import { supabaseAdmin } from "./supabase/admin";
 import type { InviteRecord } from "./types";
@@ -10,9 +11,10 @@ import type { InviteRecord } from "./types";
 // - the job description (JobAdder API, lib/job-description.ts),
 // - their resume (JobAdder API, candidate attachments),
 // - the team's JobAdder notes about them (synced ja_notes),
-// - their application answers: LinkedIn link, salary (synced ja_applications_custom_fields).
+// - their application answers: LinkedIn link, salary (synced ja_applications_custom_fields),
+// - the LinkedIn profile PDF, if the recruiter uploaded one (lib/linkedin-pdf.ts).
 // LinkedIn itself is never fetched - it needs a sign-in and doesn't allow
-// automated reading - so only the link is passed on for the interviewer.
+// automated reading - so otherwise only the link is passed on for the interviewer.
 //
 // UNVERIFIED: JobAdder's attachment endpoints (GET /candidates/{id}/attachments
 // and .../attachments/{attachmentId}) and their field names. When no resume is
@@ -33,6 +35,7 @@ export type ReviewInputs = {
   resumeProblem: string | null;
   notes: { date: string; author: string | null; type: string | null; job: string | null; text: string }[];
   application: { linkedinUrl: string | null; expectedSalary: string | null; currentSalary: string | null };
+  linkedinPdf: { fileName: string; base64: string } | null;
 };
 
 export function htmlToText(html: string): string {
@@ -47,11 +50,12 @@ export function htmlToText(html: string): string {
 }
 
 export async function gatherReviewInputs(invite: InviteRecord): Promise<ReviewInputs> {
-  const [jobHtml, resumeResult, notes, application] = await Promise.all([
+  const [jobHtml, resumeResult, notes, application, linkedinPdf] = await Promise.all([
     getJobDescription(invite.interview.jobadderJobId),
     findResume(invite.jobadderCandidateId),
     candidateNotes(invite.jobadderCandidateId),
     applicationAnswers(invite.jobadderApplicationId),
+    linkedinPdfContent(invite.bookingId),
   ]);
   return {
     jobDescription: jobHtml ? htmlToText(jobHtml) : null,
@@ -59,6 +63,7 @@ export async function gatherReviewInputs(invite: InviteRecord): Promise<ReviewIn
     resumeProblem: resumeResult.problem,
     notes,
     application,
+    linkedinPdf,
   };
 }
 
