@@ -26,8 +26,8 @@ type Props = {
 };
 
 // The recruiter's side of the interview: Daily video (joined as owner), a banner
-// to admit the candidate from the lobby, automatic recording once the candidate
-// is in, a countdown to the booked end time at the top, timestamped notes under the video, and `aside` (the job description)
+// when someone is in the lobby (Daily's own Allow button in the video lets them
+// in), automatic recording once the candidate is in, a countdown to the booked end time at the top, timestamped notes under the video, and `aside` (the job description)
 // to the right.
 export function InterviewScreen({ bookingId, candidateName, canJoin, initialNotes, notePrefix, slot, aside }: Props) {
   const router = useRouter();
@@ -46,7 +46,16 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
   // transcript), or from when the recruiter joined until recording starts.
   const [clockStart, setClockStart] = useState<number | null>(null);
 
+  // Inside a COSHub frame without camera permission the browser refuses without
+  // asking, so there's nothing to allow: the interview needs its own tab.
+  const [cameraBlocked, setCameraBlocked] = useState(false);
+
   useEffect(() => () => void callRef.current?.destroy(), []);
+  useEffect(() => {
+    const policy = (document as unknown as { featurePolicy?: { allowsFeature(feature: string): boolean } }).featurePolicy;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCameraBlocked(window.self !== window.top && policy?.allowsFeature("camera") === false);
+  }, []);
 
   async function join() {
     setPhase("joining");
@@ -116,16 +125,6 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
     }
   }
 
-  async function admitAll() {
-    for (const p of waiting) await callRef.current?.updateWaitingParticipant(p.id, { grantRequestedAccess: true });
-    setWaiting([]);
-  }
-
-  async function admit(id: string, allow: boolean) {
-    await callRef.current?.updateWaitingParticipant(id, { grantRequestedAccess: allow });
-    setWaiting((w) => w.filter((p) => p.id !== id));
-  }
-
   async function finish(outcome: "completed" | "no_show") {
     const call = callRef.current;
     if (call) {
@@ -137,53 +136,41 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
   }
 
   const inCall = phase === "joined";
+  // Showing while it connects too, so anything Daily needs from the recruiter is visible.
+  const showFrame = inCall || phase === "joining";
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="min-w-0 space-y-3">
         {slot && canJoin && <InterviewTimer slotStart={slot.start} slotEnd={slot.end} zone={slot.zone} />}
+        {cameraBlocked && (
+          <section role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
+            <p className="text-sm text-amber-900">Your camera and microphone can&apos;t be used inside COSHub.</p>
+            <a
+              href={`/r/bookings/${bookingId}`}
+              target="_blank"
+              rel="noopener"
+              className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800"
+            >
+              Open interview in its own tab ↗
+            </a>
+          </section>
+        )}
         {waiting.length > 0 && (
-          <section role="alert" className="rounded-lg border border-amber-200 bg-amber-50">
-            <div className="flex items-center justify-between gap-3 border-b border-amber-200 px-4 py-2">
-              <p className="text-sm font-semibold text-amber-900">In the lobby</p>
-              {waiting.length > 1 && (
-                <button type="button" onClick={admitAll} className="text-xs font-medium text-amber-900 underline hover:text-amber-950">
-                  Admit everyone
-                </button>
-              )}
-            </div>
-            <ul className="divide-y divide-amber-200">
-              {waiting.map((p) => (
-                <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
-                  <p className="text-sm text-amber-900">
-                    <span className="font-semibold">{parseCallName(p.name).name || candidateName}</span>{" "}
-                    <span className="text-xs">{parseCallName(p.name).role ?? "candidate"}</span>
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => admit(p.id, true)}
-                      className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-800"
-                    >
-                      Admit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => admit(p.id, false)}
-                      className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
-                    >
-                      Deny
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+          <section role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
+            <p className="text-sm text-amber-900">
+              <span className="font-semibold">In the lobby:</span>{" "}
+              {waiting.map((p) => `${parseCallName(p.name).name || candidateName} (${parseCallName(p.name).role ?? "candidate"})`).join(", ")}
+            </p>
+            <p className="text-xs text-amber-800">
+              Press Allow at the top right of the video to let them in. If a camera message covers it, press Dismiss first.
+            </p>
           </section>
         )}
 
         {/* As wide as the column allows, but never taller than the window. */}
         <div className="relative aspect-video max-h-[calc(100dvh-5rem)] min-h-[18rem] w-full overflow-hidden rounded-lg border border-neutral-200 bg-neutral-900">
-          <div ref={frameRef} className={inCall ? "absolute inset-0" : "hidden"} />
+          <div ref={frameRef} className={showFrame ? "absolute inset-0 z-10" : "hidden"} />
           {!inCall && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
               {phase === "idle" && (

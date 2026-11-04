@@ -3,6 +3,7 @@
 import type { DailyCall } from "@daily-co/daily-js";
 import { useEffect, useRef, useState } from "react";
 import type { WaitingRoomContent } from "@/content/waiting-room";
+import { followAdmission } from "@/lib/daily-lobby";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
 import type { PublicRecruiter } from "@/lib/types";
 import { BrandLogo } from "@/app/brand-logo";
@@ -36,8 +37,9 @@ type Props = {
 };
 
 // The candidate's side of the interview. They join the Daily room without a
-// meeting token, so Daily holds them in the lobby; we keep the video hidden and
-// show the ConnectOS waiting screen until the recruiter lets them in.
+// meeting token, so Daily holds them in the lobby. Daily's own screen (camera
+// and microphone, Request to join) shows above the ConnectOS waiting content
+// until the recruiter lets them in, then the video fills the page.
 export function InterviewRoom(props: Props) {
   const { recruiterSlug, token, recruiter, candidateFirstName, startsAt, opensAt, zone, lobby, jobHref } = props;
   const frameRef = useRef<HTMLDivElement>(null);
@@ -77,23 +79,13 @@ export function InterviewRoom(props: Props) {
         showFullscreenButton: true,
       });
       call.on("left-meeting", () => setPhase((p) => (p === "denied" ? p : "left")));
-      call.on("error", () => setPhase((p) => (p === "denied" ? p : "error")));
+      followAdmission(call, setPhase);
 
       await call.join({
         url: access.roomUrl,
         userName: access.candidateName,
         userData: { role: "candidate", bookingId: access.bookingId },
       });
-      if (cancelled) return;
-
-      const { access: level } = call.accessState();
-      if (level !== "unknown" && level.level === "lobby") {
-        setPhase("lobby");
-        const { granted } = await call.requestAccess({ name: access.candidateName, access: { level: "full" } });
-        if (!cancelled) setPhase(granted ? "in_call" : "denied");
-      } else {
-        setPhase("in_call");
-      }
     }
 
     start().catch((err) => {
@@ -108,23 +100,31 @@ export function InterviewRoom(props: Props) {
   }, [recruiterSlug, token, opensAt]);
 
   const inCall = phase === "in_call";
+  const knocking = phase === "connecting" || phase === "lobby";
 
   return (
     <div className="min-h-dvh bg-brand-bg">
-      {/* The Daily frame stays mounted (so camera/mic permission and the lobby
-          connection carry on) but is only shown once the candidate is admitted. */}
+      {!inCall && (
+        <header className="mx-auto flex max-w-6xl items-center justify-between px-4 pt-6 sm:px-6 lg:pt-10">
+          <BrandLogo className="-ml-3 h-11 w-auto" />
+          <p className="hidden text-sm text-brand-faint sm:block">Where offshoring meets excellence</p>
+        </header>
+      )}
+      {/* One element throughout, so the call isn't interrupted by moving it. The
+          candidate needs Daily's screen to allow their camera and ask to join. */}
       <div
         ref={frameRef}
-        className={inCall ? "fixed inset-0 z-20 bg-black" : "pointer-events-none fixed inset-0 -z-10 opacity-0"}
-        aria-hidden={!inCall}
+        className={
+          inCall
+            ? "fixed inset-0 z-20 bg-black"
+            : knocking
+              ? "mx-auto mt-6 h-[26rem] w-[calc(100%-2rem)] max-w-[70rem] overflow-hidden rounded-3xl border border-brand-line bg-brand-surface lg:h-[20rem]"
+              : "hidden"
+        }
       />
       {!inCall && (
-        <div className="mx-auto max-w-6xl px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-6 sm:px-6 lg:pt-10">
-          <header className="flex items-center justify-between">
-            <BrandLogo className="-ml-3 h-11 w-auto" />
-            <p className="hidden text-sm text-brand-faint sm:block">Where offshoring meets excellence</p>
-          </header>
-          <div className="mt-6 grid gap-6 lg:mt-10 lg:grid-cols-5">
+        <div className="mx-auto max-w-6xl px-4 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6">
+          <div className="mt-6 grid gap-6 lg:grid-cols-5">
             <div className="space-y-6 lg:col-span-2">
               <StatusCard
                 phase={phase}
@@ -185,7 +185,7 @@ function StatusCard({
     },
     lobby: {
       title: `Thanks ${candidateFirstName}, you're in the waiting room`,
-      body: `${recruiter.firstName} has been told you're here and will let you in shortly. Please keep this page open.`,
+      body: `Allow your camera and microphone if your browser asks, then press Request to join in the box above. ${recruiter.firstName} will let you in shortly. Please keep this page open.`,
       waiting: true,
     },
     in_call: { title: "", body: "" },
