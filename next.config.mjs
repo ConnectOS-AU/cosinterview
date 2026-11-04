@@ -1,3 +1,5 @@
+import { execSync } from "node:child_process";
+
 /** @type {import('next').NextConfig} */
 
 // Static response headers for every route. Camera, microphone and screen share
@@ -24,7 +26,21 @@ const candidateFrameHeaders = [{ key: "Content-Security-Policy", value: "frame-a
 // The client lobby frames only its own pages (the resume viewer).
 const guestFrameHeaders = [{ key: "Content-Security-Policy", value: "frame-ancestors 'self'" }];
 
+// Adds ?dpl=<id> to every page file's address, so each release has its own. A
+// caching layer once kept a 404 for a page file requested mid-deploy, and that
+// address stayed broken after the file arrived. Taken from the commit so both
+// servers agree when they build the same one.
+function deploymentId() {
+  if (process.env.DEPLOYMENT_ID) return process.env.DEPLOYMENT_ID;
+  try {
+    return execSync("git rev-parse --short=12 HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const nextConfig = {
+  deploymentId: deploymentId(),
   experimental: {
     // Recruiter photos and LinkedIn PDFs (limited to 2 MB and 4 MB in their actions).
     serverActions: { bodySizeLimit: "5mb" },
