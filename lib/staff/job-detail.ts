@@ -3,10 +3,9 @@ import { demoMode } from "../demo";
 import { jobAdderGet, jobAdderWriteConfigured } from "./jobadder-api";
 
 // A job as JobAdder's API returns it (GET /jobs/{jobId}), for what the synced
-// ja_jobs table doesn't have: the description and the job's recruiters.
-// Kept for an hour (10 minutes after a failure); lookups for the same job
-// share one request, and at most a few run at once so a page listing every
-// active job doesn't flood JobAdder.
+// ja_jobs table doesn't have, such as the description. Kept for an hour (10
+// minutes after a failure); lookups for the same job share one request, and at
+// most a few run at once so as not to flood JobAdder.
 
 type Job = Record<string, unknown>;
 type Entry = { job: Job | null; at: number; pending: Promise<Job | null> | null };
@@ -63,42 +62,70 @@ export async function getJobAdderJob(jobId: string): Promise<Job | null> {
   return pending;
 }
 
-// UNVERIFIED: where JobAdder lists a job's recruiters. Any of these fields,
-// as a user or a list of users with an email, counts; if a job has none of
-// them, its field names are logged once so the right one can be added.
-const RECRUITER_FIELDS = ["recruiters", "recruiter", "users", "team", "assignedTo"] as const;
-let loggedFields = false;
+// The active jobs a person is a recruiter on, owners included. JobAdder filters
+// this for us: looking up each job instead takes 160-odd requests, and its rate
+// limit starts refusing them after about 30. Kept for 10 minutes per person (a
+// minute after a failure, keeping what we had).
+const JOBS_MS = 10 * 60_000;
+const JOBS_RETRY_MS = 60_000;
+const PAGE = 100;
 
-export function jobRecruiterEmails(job: Job): string[] {
-  const emails: string[] = [];
-  let found = false;
-  for (const field of RECRUITER_FIELDS) {
-    const value = job[field];
-    if (value === undefined) continue;
-    found = true;
-    for (const user of Array.isArray(value) ? value : [value]) {
-      const email = user && typeof user === "object" ? (user as { email?: unknown }).email : null;
-      if (typeof email === "string" && email.includes("@")) emails.push(email.toLowerCase());
-    }
+type UserJobs = { ids: Set<string>; until: number; pending: Promise<Set<string>> | null };
+type UserIds = { byEmail: Map<string, number>; until: number };
+type List<T> = { items?: T[]; totalCount?: number };
+
+const store = globalThis as typeof globalThis & { __cosrecUserJobs?: Map<string, UserJobs>; __cosrecUserIds?: UserIds };
+const userJobs = (store.__cosrecUserJobs ??= new Map());
+
+async function jobAdderUserId(email: string): Promise<number | null> {
+  if (!store.__cosrecUserIds || store.__cosrecUserIds.until < Date.now()) {
+    const { items = [] } = await jobAdderGet<List<{ userId: number; email?: string }>>("/users?limit=500");
+    store.__cosrecUserIds = { byEmail: new Map(items.map((u) => [(u.email ?? "").toLowerCase(), u.userId])), until: Date.now() + HIT_MS };
   }
-  if (!found && !loggedFields) {
-    loggedFields = true;
-    console.info("[jobadder] No recruiters field on job", job.jobId, "- fields:", Object.keys(job).join(", "));
+  return store.__cosrecUserIds.byEmail.get(email) ?? null;
+}
+
+async function loadRecruiterJobs(email: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const userId = await jobAdderUserId(email);
+  if (userId === null) return ids;
+  for (let offset = 0; ; offset += PAGE) {
+    const { items = [], totalCount = 0 } = await jobAdderGet<List<{ jobId: number }>>(`/jobs?recruiterUserId=${userId}&active=true&limit=${PAGE}&offset=${offset}`);
+    for (const job of items) ids.add(String(job.jobId));
+    if (items.length === 0 || offset + PAGE >= totalCount) return ids;
   }
-  return emails;
+}
+
+function recruiterJobs(email: string): Promise<Set<string>> {
+  const cached = userJobs.get(email);
+  if (cached?.pending) return cached.pending;
+  if (cached && cached.until > Date.now()) return Promise.resolve(cached.ids);
+  const known = cached?.ids ?? new Set<string>();
+  const pending = loadRecruiterJobs(email).then(
+    (ids) => {
+      userJobs.set(email, { ids, until: Date.now() + JOBS_MS, pending: null });
+      return ids;
+    },
+    (err) => {
+      console.error("[jobadder] Recruiter's jobs lookup failed", err);
+      userJobs.set(email, { ids: known, until: Date.now() + JOBS_RETRY_MS, pending: null });
+      return known;
+    },
+  );
+  userJobs.set(email, { ids: known, until: 0, pending });
+  return pending;
 }
 
 // The jobs (of those given) that list `email` as a recruiter. Waits up to
-// `waitMs` for JobAdder; jobs it hasn't answered for by then are left out this
-// time and are ready from the cache on the next page load.
+// `waitMs` for JobAdder, then shows what's known; the next page load has the rest.
 export async function jobsWithRecruiter(jobIds: string[], email: string, waitMs = 4_000): Promise<Set<string>> {
   const me = email.toLowerCase();
-  const mine = new Set<string>();
-  const lookups = jobIds.map((id) =>
-    getJobAdderJob(id).then((job) => {
-      if (job && jobRecruiterEmails(job).includes(me)) mine.add(id);
-    }),
-  );
-  await Promise.race([Promise.all(lookups), new Promise((resolve) => setTimeout(resolve, waitMs))]);
-  return new Set(mine);
+  if (demoMode()) {
+    const listed = (id: string) => (DEMO_DETAILS[id]?.recruiters as { email: string }[] | undefined)?.some((r) => r.email === me);
+    return new Set(jobIds.filter(listed));
+  }
+  if (!jobAdderWriteConfigured()) return new Set();
+  const known = userJobs.get(me)?.ids ?? new Set<string>();
+  const mine = await Promise.race([recruiterJobs(me), new Promise<Set<string>>((resolve) => setTimeout(() => resolve(known), waitMs))]);
+  return new Set(jobIds.filter((id) => mine.has(id)));
 }
