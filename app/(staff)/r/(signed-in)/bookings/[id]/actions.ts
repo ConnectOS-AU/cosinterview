@@ -44,7 +44,8 @@ export type JoinResult =
   | { ok: true; roomUrl: null; token: null; backgroundUrl: null } // local dev without Daily
   | { ok: false; error: string };
 
-export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
+// startEarly brings the candidate straight in, before the booked time.
+export async function joinAsRecruiter(bookingId: string, startEarly: boolean): Promise<JoinResult> {
   try {
     const { staff, invite } = await ownBooking(bookingId);
     if (invite.status !== "booked" && invite.status !== "in_progress") {
@@ -58,7 +59,7 @@ export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
     // recruiter side so the transcript labels them as the interviewer.
     const person = staff.actingAs && staff.own ? staff.own : staff.recruiter;
     const name = person.displayName;
-    const token = await createOwnerToken(room.name, { name, recruiterId: staff.recruiter.id });
+    const token = await createOwnerToken(room.name, { name, recruiterId: staff.recruiter.id, startEarly });
     await recordAttendee(bookingId, { name, kind: "recruiter" });
     return { ok: true, roomUrl: room.url, token, backgroundUrl: recruiterPhotoUrl(person.interviewBackgroundPath) };
   } catch (err) {

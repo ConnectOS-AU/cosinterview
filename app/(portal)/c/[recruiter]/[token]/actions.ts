@@ -22,6 +22,7 @@ import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
 import { messageCandidate, normalisePhone } from "@/lib/messaging";
 import { allowRequest } from "@/lib/rate-limit";
 import { claimSlot, moveSlot, saveCandidateNumbers, saveGraphEvent, saveInviteLink } from "@/lib/repo";
+import { createCandidateToken, recruiterStartedEarly } from "@/lib/daily";
 import { roomForBooking } from "@/lib/rooms";
 import { runCandidateReview } from "@/lib/candidate-review";
 import { recordArrival } from "@/lib/punctuality";
@@ -334,12 +335,22 @@ async function afterBooking(booked: InviteRecord, token: string, moved?: { was: 
 }
 
 export type RoomAccess =
-  | { ok: true; roomUrl: string | null; candidateName: string; bookingId: string }
+  | { ok: true; roomUrl: string | null; token: string | null; candidateName: string; bookingId: string }
   | { ok: false; reason: "invalid" | "not_booked" | "too_early" | "closed" | "unavailable" };
 
-// Hands the candidate's page the room URL, only inside the join window. The
-// candidate gets no meeting token, so Daily holds them in the lobby until the
-// recruiter admits them. roomUrl is null in local dev without Daily credentials.
+async function startedEarly(invite: InviteRecord): Promise<boolean> {
+  if (!invite.dailyRoomName) return false;
+  return recruiterStartedEarly(invite.dailyRoomName).catch((err) => {
+    console.error("[room] Daily presence failed", invite.bookingId, err);
+    return false;
+  });
+}
+
+// Hands the candidate's page the room URL, only inside the join window or once
+// the recruiter has chosen to start early. The candidate gets no meeting token, so
+// Daily holds them in the lobby until the recruiter admits them, unless the
+// recruiter started early: then they get one and go straight in. roomUrl is null
+// in local dev without Daily credentials.
 export async function getRoomAccess(recruiter: string, token: string): Promise<RoomAccess> {
   if (!allowRequest(await clientKey("room"), 30, 60_000)) return { ok: false, reason: "unavailable" };
   const invite = await loadInvite(recruiter, token);
@@ -349,15 +360,17 @@ export async function getRoomAccess(recruiter: string, token: string): Promise<R
   if (!window) return { ok: false, reason: "not_booked" };
   const now = DateTime.utc();
   if (now <= window.closes) await recordArrival(invite);
+  const early = await startedEarly(invite);
   // The local demo skips the time check so the lobby can be tried straight away.
   if (!demoMode()) {
-    if (now < window.opens) return { ok: false, reason: "too_early" };
+    if (now < window.opens && !early) return { ok: false, reason: "too_early" };
     if (now > window.closes) return { ok: false, reason: "closed" };
   }
 
   try {
     const room = await roomForBooking(invite);
-    return { ok: true, roomUrl: room?.url ?? null, candidateName: invite.candidateName, bookingId: invite.bookingId };
+    const token = room && early ? await createCandidateToken(room.name, invite.candidateName) : null;
+    return { ok: true, roomUrl: room?.url ?? null, token, candidateName: invite.candidateName, bookingId: invite.bookingId };
   } catch (err) {
     console.error("[room] Daily room setup failed", invite.bookingId, err);
     return { ok: false, reason: "unavailable" };
