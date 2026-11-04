@@ -27,7 +27,11 @@ export type CandidateNumbers = { whatsapp: string | null; viber: string | null }
 const CHANNEL_LABEL: Record<Channel, string> = { whatsapp: "WhatsApp", viber: "Viber" };
 
 const dryRun = () => demoMode() || process.env.MESSAGING_DRY_RUN === "true";
-const base = () => process.env.INFOBIP_BASE_URL?.replace(/\/+$/, "") ?? "";
+// Infobip shows the address without https://, so it may be pasted in like that.
+const base = () => {
+  const url = process.env.INFOBIP_BASE_URL?.trim().replace(/\/+$/, "") ?? "";
+  return url && !/^https?:\/\//i.test(url) ? `https://${url}` : url;
+};
 
 function configured(channel: Channel): boolean {
   if (dryRun()) return true;
