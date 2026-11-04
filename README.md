@@ -36,7 +36,7 @@ candidates see it as "ConnectOS Interviews".
 
 | Route | What it does |
 |---|---|
-| `/c/<recruiter-slug>/<token>` | Welcome (recruiter photo, bio, welcome message), time picker in the candidate's time zone, optional WhatsApp and Viber numbers, recording consent, booking. After booking: confirmation. |
+| `/c/<recruiter-slug>/<token>` | Welcome (recruiter photo, bio, welcome message), time picker in the candidate's time zone, optional WhatsApp and Viber numbers, recording consent, booking. After booking: confirmation, and **Choose a new time** (`?change=1`), which lets the candidate move their booking up to 2 hours before the start: the current time stays booked until a new one is confirmed, the Outlook entry moves, and they get a new confirmation. |
 | `/c/<recruiter-slug>/<token>/room` | Interview room. The candidate joins the Daily room **without a meeting token**, so Daily holds them in the lobby; the page shows the ConnectOS waiting screen until the recruiter admits them, then shows the video. |
 | `/c/<recruiter-slug>/<token>/invite.ics` | "Add to calendar" download. |
 | `/c/<recruiter-slug>/<token>/job` | The job description from JobAdder, linked from the lobby (opens in a new tab so the candidate keeps their place). |
@@ -45,6 +45,9 @@ candidates see it as "ConnectOS Interviews".
 - The waiting screen's content is edited by admins at `/r/admin/lobby`; `content/waiting-room.ts` holds the
   default it starts from (placeholder copy - replace it in the editor before go-live).
 - Booking rules (working hours, notice, days ahead) are in `lib/availability.ts`.
+- **Recruiter emails:** the recruiter is emailed (to their calendar address, replies go to the candidate) when a
+  candidate books or moves an interview, with the candidate's WhatsApp and Viber numbers (also on the Outlook entry).
+  A move also mentions any attendees invited for the old time. Candidates can update their numbers when they move.
 - **WhatsApp and Viber** (`lib/messaging.ts`, through Infobip): when the candidate gives their numbers,
   the booking confirmation, 24h and 2h reminders, a moved interview and a cancellation go there as well as
   by email, and the JobAdder note says what was sent where. Numbers typed as 09xx are taken as Philippine
@@ -204,7 +207,7 @@ transcripts after 12 months), and `008` interview stages, note authors, extra at
 (`cos_recruitment_attendees`), and `009` the candidate overview after the interview (on the
 same row as the one before) and candidates' WhatsApp and Viber numbers, `010` the recruiter's
 LinkedIn check on the booking (`linkedin_check`), and `011` the uploaded LinkedIn profile PDFs
-(`cos_recruitment_linkedin_pdfs`) and when the candidate reached the lobby (`candidate_arrived_at`).
+(`cos_recruitment_linkedin_pdfs`) and when the candidate reached the lobby (`candidate_arrived_at`), `012` `cos_recruitment_move_slot`, for candidates moving their own booking.
 
 ## Local setup
 

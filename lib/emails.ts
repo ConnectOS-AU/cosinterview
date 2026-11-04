@@ -105,6 +105,8 @@ export function recruiterEventBody(input: {
   jobTitle: string | null;
   clientName: string | null;
   candidateWhen: string | null;
+  whatsapp: string | null;
+  viber: string | null;
   link: string;
 }): string {
   return `
@@ -113,8 +115,55 @@ export function recruiterEventBody(input: {
   <p>The interview screen has the video call, lobby admit and your notes.</p>
   <p><strong>Candidate:</strong> ${escape(input.candidateName)} (${escape(input.candidateEmail)})<br>
   ${input.jobTitle ? `<strong>Role:</strong> ${escape(input.jobTitle)}${input.clientName ? ` · ${escape(input.clientName)}` : ""}<br>` : ""}
-  ${input.candidateWhen ? `<strong>Candidate's time:</strong> ${escape(input.candidateWhen)}` : ""}</p>
+  ${input.candidateWhen ? `<strong>Candidate's time:</strong> ${escape(input.candidateWhen)}<br>` : ""}
+  ${input.whatsapp ? `<strong>WhatsApp:</strong> ${escape(input.whatsapp)}<br>` : ""}
+  ${input.viber ? `<strong>Viber:</strong> ${escape(input.viber)}` : ""}</p>
 </div>`.trim();
+}
+
+// Tells the recruiter a candidate has booked, or moved their booking. Plain
+// wording rather than an admin template: it's for staff only.
+export function recruiterBookingEmail(input: {
+  candidateName: string;
+  candidateEmail: string;
+  jobTitle: string | null;
+  clientName: string | null;
+  stage: string;
+  when: string;
+  candidateWhen: string | null;
+  whatsapp: string | null;
+  viber: string | null;
+  // The time it was moved from, and how many attendees were invited for that time.
+  moved: { was: string; attendees: number } | null;
+  link: string;
+}): EmailContent {
+  const { moved } = input;
+  const role = input.jobTitle ? `${input.jobTitle}${input.clientName ? ` · ${input.clientName}` : ""}` : null;
+  const attendees = moved?.attendees
+    ? `${moved.attendees} attendee${moved.attendees === 1 ? " was" : "s were"} invited for the old time and ${moved.attendees === 1 ? "hasn't" : "haven't"} been told about the move.`
+    : null;
+  const lines: [string, string][] = [
+    ["Candidate", `${input.candidateName} (${input.candidateEmail})`],
+    ...(role ? [["Role", role] as [string, string]] : []),
+    ["Interview", input.stage],
+    ["When", input.when],
+    ...(moved ? [["Was", moved.was] as [string, string]] : []),
+    ...(input.candidateWhen ? [["Candidate's time", input.candidateWhen] as [string, string]] : []),
+    ...(input.whatsapp ? [["WhatsApp", input.whatsapp] as [string, string]] : []),
+    ...(input.viber ? [["Viber", input.viber] as [string, string]] : []),
+  ];
+  const intro = moved ? `${input.candidateName} has moved their interview to a new time.` : `${input.candidateName} has booked an interview.`;
+  return {
+    subject: `Interview ${moved ? "moved" : "booked"}: ${input.candidateName}${input.jobTitle ? ` – ${input.jobTitle}` : ""}`,
+    bodyHtml: `
+<div ${WRAP}>
+  <p>${escape(intro)}</p>
+  <p>${lines.map(([label, value]) => `<strong>${escape(label)}:</strong> ${escape(value)}`).join("<br>")}</p>
+  ${attendees ? `<p>${escape(attendees)}</p>` : ""}
+  <p><a href="${escape(input.link)}" ${BUTTON}>Open the interview</a></p>
+</div>`.trim(),
+    text: [intro, lines.map(([label, value]) => `${label}: ${value}`).join("\n"), attendees, `Open the interview: ${input.link}`].filter(Boolean).join("\n\n"),
+  };
 }
 
 // Sent 24 hours and 2 hours before the interview. roomLink is null when the

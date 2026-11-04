@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isDemoInvite, resetDemo } from "@/lib/demo";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
-import { availableSlots, inviteExpired, invitePath, loadInvite, publicRecruiter } from "@/lib/invite";
+import { availableSlots, canChangeTime, CHANGE_CUTOFF_HOURS, inviteExpired, invitePath, loadInvite, publicRecruiter } from "@/lib/invite";
 import type { InviteRecord, PublicRecruiter } from "@/lib/types";
 import { Notice, PortalShell, RecruiterAvatar } from "../../portal-shell";
 import { SlotPicker } from "./slot-picker";
@@ -11,12 +11,13 @@ export const dynamic = "force-dynamic";
 
 type Props = {
   params: Promise<{ recruiter: string; token: string }>;
-  searchParams: Promise<{ reset?: string }>;
+  searchParams: Promise<{ reset?: string; change?: string }>;
 };
 
 export default async function InvitePage({ params, searchParams }: Props) {
   const { recruiter: slug, token } = await params;
-  if ((await searchParams).reset && isDemoInvite(slug, token)) {
+  const { reset, change } = await searchParams;
+  if (reset && isDemoInvite(slug, token)) {
     resetDemo();
     redirect(`/c/${slug}/${token}`);
   }
@@ -35,15 +36,16 @@ export default async function InvitePage({ params, searchParams }: Props) {
   const recruiter = publicRecruiter(invite);
   return (
     <PortalShell recruiter={recruiter}>
-      <InviteBody invite={invite} recruiter={recruiter} token={token} />
+      <InviteBody invite={invite} recruiter={recruiter} token={token} changing={Boolean(change)} />
     </PortalShell>
   );
 }
 
-async function InviteBody({ invite, recruiter, token }: { invite: InviteRecord; recruiter: PublicRecruiter; token: string }) {
+async function InviteBody({ invite, recruiter, token, changing }: { invite: InviteRecord; recruiter: PublicRecruiter; token: string; changing: boolean }) {
   switch (invite.status) {
     case "booked":
     case "in_progress":
+      if (changing && canChangeTime(invite)) return <ChangeTime invite={invite} recruiter={recruiter} token={token} />;
       return <Booked invite={invite} token={token} />;
     case "completed":
     case "no_show":
@@ -119,6 +121,35 @@ function Welcome({ invite, recruiter }: { invite: InviteRecord; recruiter: Publi
   );
 }
 
+// Choosing a new time for a booking. The current time stays booked until then.
+async function ChangeTime({ invite, recruiter, token }: { invite: InviteRecord; recruiter: PublicRecruiter; token: string }) {
+  const zone = invite.candidateTimezone ?? invite.recruiter.timezone;
+  const slots = await availableSlots(invite);
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl font-medium text-brand-ink sm:text-3xl">Choose a new time</h1>
+        <p className="mt-1 text-base text-brand-muted">
+          You&apos;re booked for {formatDay(invite.slotStart!, zone)} at {formatTime(invite.slotStart!, zone)} ({formatZone(zone)} time). That stays
+          booked until you choose a new time.
+        </p>
+      </div>
+      <SlotPicker
+        recruiterSlug={invite.recruiter.slug}
+        token={token}
+        slots={slots}
+        durationMins={invite.interview.durationMins}
+        recruiterFirstName={recruiter.firstName}
+        moving
+        numbers={{ whatsapp: invite.candidateWhatsapp, viber: invite.candidateViber }}
+      />
+      <Link href={invitePath(invite, token)} className="inline-block text-sm text-brand-teal underline">
+        Keep my current time
+      </Link>
+    </div>
+  );
+}
+
 function Booked({ invite, token }: { invite: InviteRecord; token: string }) {
   const zone = invite.candidateTimezone ?? invite.recruiter.timezone;
   const base = invitePath(invite, token);
@@ -161,7 +192,17 @@ function Booked({ invite, token }: { invite: InviteRecord; token: string }) {
       <ul className="space-y-1.5 text-sm text-brand-muted">
         <li>The room opens 15 minutes before your start time.</li>
         <li>Use a laptop or phone with a camera, in a quiet spot with good internet.</li>
-        <li>Need to change the time? Reply to your invitation email.</li>
+        {canChangeTime(invite) ? (
+          <li>
+            Need to change the time?{" "}
+            <Link href={`${base}?change=1`} className="font-medium text-brand-teal underline">
+              Choose a new time
+            </Link>{" "}
+            (up to {CHANGE_CUTOFF_HOURS} hours before the start).
+          </li>
+        ) : (
+          <li>Need to change the time? Reply to your invitation email.</li>
+        )}
       </ul>
     </div>
   );

@@ -22,8 +22,8 @@ async function daily<T>(method: "GET" | "POST", path: string, body?: unknown): P
 
 type Room = { name: string; url: string };
 
-// Creates the room for one booking, or returns it if it already exists (so a
-// retry after a partial failure is safe). Open from 15 minutes before the start
+// Creates the room for one booking, or updates it if it already exists (so a
+// retry is safe and a moved interview opens at its new time). Open from 15 minutes before the start
 // until an hour after the scheduled end.
 export async function ensureInterviewRoom(
   name: string,
@@ -45,7 +45,8 @@ export async function ensureInterviewRoom(
   });
   if (created.status === 200) return { name: created.json.name, url: created.json.url };
 
-  const existing = await daily<Room>("GET", `/rooms/${encodeURIComponent(name)}`);
+  // Already there: an interview moved to a new time, so open it for that time.
+  const existing = await daily<Room>("POST", `/rooms/${encodeURIComponent(name)}`, { properties: { nbf, exp } });
   if (existing.status === 200) return { name: existing.json.name, url: existing.json.url };
   throw new Error(`Daily room create failed: ${created.status} ${JSON.stringify(created.json)}`);
 }

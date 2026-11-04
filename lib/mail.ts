@@ -17,6 +17,8 @@ export type CandidateMail = {
   html: string;
   text: string;
   attachments?: MailAttachment[];
+  // Instead of "<recruiter> at ConnectOS", for mail that isn't from a recruiter.
+  fromName?: string;
 };
 
 const dryRun = () => demoMode() || process.env.EMAIL_DRY_RUN === "true";
@@ -40,7 +42,7 @@ export async function sendCandidateMail(mail: CandidateMail): Promise<void> {
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       personalizations: [{ to: [mail.to] }],
-      from: { email: from, name: `${mail.recruiter.name} at ${process.env.SENDGRID_FROM_NAME || "ConnectOS"}` },
+      from: { email: from, name: mail.fromName ?? `${mail.recruiter.name} at ${process.env.SENDGRID_FROM_NAME || "ConnectOS"}` },
       reply_to: mail.recruiter,
       subject: mail.subject,
       content: [
