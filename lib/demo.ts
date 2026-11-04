@@ -237,13 +237,13 @@ export const DEMO_JOBS: JobAdderJob[] = [
 
 export const DEMO_APPLICATIONS: Record<string, JobAdderApplication[]> = {
   "1001": [
-    { applicationId: "9001", candidateId: "5001", candidateName: "Maria Santos", candidateEmail: "maria.santos@example.com", statusName: "Shortlisting", stage: "Screening", unsubscribed: false, updatedAt: "2026-10-21T00:00:00Z" },
-    { applicationId: "9002", candidateId: "5002", candidateName: "Jose Reyes", candidateEmail: "jose.reyes@example.com", statusName: "Shortlisting", stage: "Screening", unsubscribed: false, updatedAt: "2026-10-22T00:00:00Z" },
+    { applicationId: "9001", candidateId: "5001", candidateName: "Maria Santos", candidateEmail: "maria.santos@example.com", statusName: "Interview", stage: "Internal Interview", unsubscribed: false, updatedAt: "2026-10-21T00:00:00Z" },
+    { applicationId: "9002", candidateId: "5002", candidateName: "Jose Reyes", candidateEmail: "jose.reyes@example.com", statusName: "Interview", stage: "Internal Interview", unsubscribed: false, updatedAt: "2026-10-22T00:00:00Z" },
     { applicationId: "9003", candidateId: "5003", candidateName: "Liza Mendoza", candidateEmail: null, statusName: "Applied", stage: "New", unsubscribed: false, updatedAt: "2026-10-23T00:00:00Z" },
   ],
   "1002": [
     { applicationId: "9101", candidateId: "5101", candidateName: "Carlo Bautista", candidateEmail: "carlo.b@example.com", statusName: "Applied", stage: "New", unsubscribed: false, updatedAt: "2026-10-25T00:00:00Z" },
-    { applicationId: "9102", candidateId: "5102", candidateName: "Grace Villanueva", candidateEmail: "grace.v@example.com", statusName: "A possibility", stage: "Screening", unsubscribed: true, updatedAt: "2026-10-25T00:00:00Z" },
+    { applicationId: "9102", candidateId: "5102", candidateName: "Grace Villanueva", candidateEmail: "grace.v@example.com", statusName: "Interview", stage: "Internal Interview", unsubscribed: true, updatedAt: "2026-10-25T00:00:00Z" },
   ],
   "1003": [],
 };

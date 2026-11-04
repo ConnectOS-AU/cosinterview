@@ -63,17 +63,18 @@ export async function getJob(jobId: string): Promise<JobAdderJob | null> {
   return data ? toJob(data as JobRow) : null;
 }
 
-// Candidates who can be interviewed: at Screening or a later stage. New
-// applications aren't screened yet; failed, withdrawn and declined ones have no
-// workflow stage in JobAdder (and their status says so); deleted ones aren't
-// active.
+// Candidates who can be interviewed: at Internal Interview or a later stage.
+// Earlier stages are handled in JobAdder; failed, withdrawn and declined ones have
+// no workflow stage (and their status says so); deleted ones aren't active.
+const BEFORE_INTERVIEW = ["New", "Screening", "Assessment"];
+
 function interviewable(stage: string | null, statusName: string | null): boolean {
-  if (!stage || stage === "New") return false;
+  if (!stage || BEFORE_INTERVIEW.includes(stage)) return false;
   return !/failed|withdrawn|withrawn|declined/i.test(statusName ?? "");
 }
 
 // Every application on the job that's still active in JobAdder and at
-// Screening or beyond.
+// Internal Interview or beyond.
 export async function listApplications(jobId: string): Promise<JobAdderApplication[]> {
   if (demoMode()) return (DEMO_APPLICATIONS[jobId] ?? []).filter((a) => interviewable(a.stage, a.statusName));
   const { data, error } = await supabaseAdmin()
@@ -84,7 +85,7 @@ export async function listApplications(jobId: string): Promise<JobAdderApplicati
     .eq("job_id", jobId)
     .eq("status_active", true)
     .not("workflow_stage", "is", null)
-    .neq("workflow_stage", "New")
+    .not("workflow_stage", "in", `(${BEFORE_INTERVIEW.join(",")})`)
     .order("updated_at", { ascending: false })
     .limit(500);
   if (error) throw new Error(`Application list failed: ${error.message}`);
