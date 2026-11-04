@@ -88,10 +88,11 @@ export async function interviewHistory(invite: InviteRecord): Promise<HistoryRou
   );
 }
 
-// The finished interviews from stages before this one.
+// The finished interviews from stages before this one, plus any at this stage they
+// missed: a second chance follows a no-show at the same stage.
 export async function earlierRounds(invite: InviteRecord): Promise<HistoryRound[]> {
   const own = stageOrder(invite.interview.stage);
-  return (await interviewHistory(invite)).filter((r) => r.bookingId !== invite.bookingId && finished(r.status) && stageOrder(r.stage) < own);
+  return (await interviewHistory(invite)).filter((r) => r.bookingId !== invite.bookingId && finished(r.status) && stageOrder(r.stage) <= own);
 }
 
 // Bookings for a later stage that haven't started, whose overview should catch

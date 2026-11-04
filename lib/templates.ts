@@ -10,8 +10,8 @@
 // out. {{message}} on its own line is where the recruiter's personal message
 // goes in an invitation.
 
-export type EmailTemplateId = "invite" | "reschedule" | "confirmation" | "reminder24h" | "reminder2h" | "cancellation" | "guestInvite";
-export type MessageTemplateId = "msgConfirmation" | "msgReminder24h" | "msgReminder2h" | "msgReschedule" | "msgCancellation";
+export type EmailTemplateId = "invite" | "reschedule" | "confirmation" | "reminder24h" | "reminder2h" | "cancellation" | "interviewChanged" | "guestInvite";
+export type MessageTemplateId = "msgConfirmation" | "msgReminder24h" | "msgReminder2h" | "msgReschedule" | "msgCancellation" | "msgInterviewChanged";
 
 export type EmailTemplate = { subject: string; body: string; button: string; footer: string };
 export type Templates = {
@@ -101,6 +101,13 @@ export const EMAILS: Record<EmailTemplateId, EmailInfo> = {
     placeholders: [...CANDIDATE, "when"],
     buttonLink: null,
   },
+  interviewChanged: {
+    label: "Interview changed",
+    group: "Candidate emails",
+    sentWhen: "When a candidate with a booked time is sent an invite to a different interview for the same job. The new invite follows it.",
+    placeholders: [...CANDIDATE, "when"],
+    buttonLink: null,
+  },
   guestInvite: {
     label: "Attendee invitation",
     group: "Attendee emails",
@@ -125,6 +132,11 @@ export const MESSAGES: Record<MessageTemplateId, { label: string; sentWhen: stri
     placeholders: [...CANDIDATE, "onWhen", "link"],
   },
   msgCancellation: { label: "Cancellation", sentWhen: "When a recruiter cancels a booked interview.", placeholders: [...CANDIDATE, "onWhen"] },
+  msgInterviewChanged: {
+    label: "Interview changed",
+    sentWhen: "When a candidate with a booked time is sent an invite to a different interview for the same job.",
+    placeholders: [...CANDIDATE, "onWhen"],
+  },
 };
 
 export const SIGNATURE_PLACEHOLDERS = COMMON;
@@ -178,6 +190,13 @@ export const DEFAULT_TEMPLATES: Templates = {
       button: "",
       footer: "",
     },
+    interviewChanged: {
+      subject: "Your ConnectOS interview has changed{{dashJob}}",
+      body:
+        "Hi {{firstName}},\n\nThere's been a change to our video interview{{forRole}}. The time on **{{when}}** no longer applies, so please remove it from your calendar.\n\nI'm sending you a new invitation with a link to choose a time.",
+      button: "",
+      footer: "",
+    },
     guestInvite: {
       subject: "{{stage}}: {{candidateName}}{{dashJob}}",
       body:
@@ -196,6 +215,7 @@ export const DEFAULT_TEMPLATES: Templates = {
       "Hi {{firstName}}, a reminder: your ConnectOS interview{{forRole}} with {{recruiterName}} is in 2 hours - {{when}}.\nJoin the video call here (it opens 15 minutes before): {{roomLink}}",
     msgReschedule: "Hi {{firstName}}, your ConnectOS interview{{onWhen}} needs to move. Please choose a new time here: {{link}}",
     msgCancellation: "Hi {{firstName}}, your ConnectOS interview{{forRole}}{{onWhen}} has been cancelled. {{recruiterName}} will be in touch.",
+    msgInterviewChanged: "Hi {{firstName}}, your ConnectOS interview{{forRole}}{{onWhen}} has changed and that time no longer applies. {{recruiterName}} is sending you a new link to choose a time.",
   },
   signature: "Kind regards,\n{{recruiterName}}\n{{recruiterTitle}}",
 };

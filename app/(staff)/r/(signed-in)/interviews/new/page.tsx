@@ -114,7 +114,8 @@ async function ChooseJob({ q, client }: { q: string; client: string }) {
 
 // Someone with no interview open on this job, and a stage still ahead of them.
 function awaitingNextStep(application: JobAdderApplication, interviews: CandidateStage[], standing: Standing): BoardCandidate[] {
-  const next = nextStage(interviews);
+  // A stage they missed is still ahead of them.
+  const next = nextStage(interviews.filter((i) => i.status !== "no_show"));
   if (!next || interviews.some((i) => i.status === "invited" || i.status === "booked" || i.status === "in_progress")) return [];
   const latest = interviews.reduce<CandidateStage | null>((a, b) => (!a || stageOrder(b) > stageOrder(a) ? b : a), null);
   return [
@@ -141,7 +142,7 @@ function reviewsFor(jobs: Map<string, CandidateStage[]>[]): Promise<Reviews> {
 // Their furthest interview with a score, and the furthest one this recruiter can
 // open: the overview page is only for the interview's own recruiter.
 function standingOf(interviews: CandidateStage[], reviews: Reviews, recruiterId: string): Standing {
-  const latestFirst = [...interviews].sort((a, b) => stageOrder(b) - stageOrder(a));
+  const latestFirst = [...interviews].sort((a, b) => stageOrder(b) - stageOrder(a) || Number(a.status === "no_show") - Number(b.status === "no_show"));
   const scores = latestFirst.map((i) => {
     const review = reviews.get(i.bookingId);
     return review?.afterInterview ?? review?.likelihood ?? null;

@@ -346,6 +346,8 @@ export async function openInterviewFor(
   durationMins: number,
   createdBy: string,
   stage: Stage,
+  // A separate round for a second chance: a candidate has one booking per round.
+  { newRound = false }: { newRound?: boolean } = {},
 ): Promise<InterviewRound> {
   if (demoMode()) {
     const store = demoStore();
@@ -357,7 +359,7 @@ export async function openInterviewFor(
         i.stage === stage &&
         i.status === "open",
     );
-    if (existing) return existing;
+    if (existing && !newRound) return existing;
     const created: InterviewRound = {
       id: demoId("interview"),
       recruiterId: recruiter.id,
@@ -387,7 +389,7 @@ export async function openInterviewFor(
     .maybeSingle();
   if (found.error) throw new Error(`Interview lookup failed: ${found.error.message}`);
   const row =
-    found.data ??
+    (newRound ? null : found.data) ??
     (
       await db
         .from("cos_recruitment_interviews")

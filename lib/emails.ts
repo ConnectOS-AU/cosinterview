@@ -98,6 +98,11 @@ export async function cancellationEmail(input: Sender & { candidateName: string;
   return renderEmail(await getTemplates(), "cancellation", { ...candidateVars(input), when: input.when });
 }
 
+// Sent instead when the booking was closed because a new invite is on its way.
+export async function interviewChangedEmail(input: Sender & { candidateName: string; jobTitle: string | null; when: string }): Promise<EmailContent> {
+  return renderEmail(await getTemplates(), "interviewChanged", { ...candidateVars(input), when: input.when });
+}
+
 // Body of the recruiter's own Outlook entry.
 export function recruiterEventBody(input: {
   candidateName: string;
