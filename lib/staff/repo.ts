@@ -416,26 +416,26 @@ export async function openInterviewFor(
 // recruiter (cancelled ones left out, so they can be invited again). The
 // picker uses it to show who's already invited to a stage and which stages
 // they've completed.
-export type CandidateStage = { stage: Stage; status: BookingStatus };
+export type CandidateStage = { bookingId: string; recruiterId: string; stage: Stage; status: BookingStatus };
 
 export async function stagesForJob(jobId: string): Promise<Map<string, CandidateStage[]>> {
   const out = new Map<string, CandidateStage[]>();
   const add = (candidateId: string, entry: CandidateStage) => out.set(candidateId, [...(out.get(candidateId) ?? []), entry]);
   if (demoMode()) {
     for (const i of demoInvites()) {
-      if (i.interview.jobadderJobId === jobId && i.status !== "cancelled") add(i.jobadderCandidateId, { stage: i.interview.stage, status: i.status });
+      if (i.interview.jobadderJobId === jobId && i.status !== "cancelled") add(i.jobadderCandidateId, { bookingId: i.bookingId, recruiterId: i.recruiter.id, stage: i.interview.stage, status: i.status });
     }
     return out;
   }
   const { data, error } = await supabaseAdmin()
     .from("cos_recruitment_bookings")
-    .select("jobadder_candidate_id, status, interview:cos_recruitment_interviews!inner(jobadder_job_id, stage)")
+    .select("id, jobadder_candidate_id, status, interview:cos_recruitment_interviews!inner(jobadder_job_id, stage, recruiter_id)")
     .eq("interview.jobadder_job_id", jobId)
     .neq("status", "cancelled");
   if (error) throw new Error(`Invite lookup failed: ${error.message}`);
   for (const r of data ?? []) {
-    const interview = r.interview as unknown as { stage: Stage };
-    add(r.jobadder_candidate_id as string, { stage: interview.stage, status: r.status as BookingStatus });
+    const interview = r.interview as unknown as { stage: Stage; recruiter_id: string };
+    add(r.jobadder_candidate_id as string, { bookingId: r.id as string, recruiterId: interview.recruiter_id, stage: interview.stage, status: r.status as BookingStatus });
   }
   return out;
 }

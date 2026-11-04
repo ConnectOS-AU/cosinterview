@@ -11,6 +11,8 @@ import { SUMMARY_MODEL } from "./summarise";
 export type ReviewQuestion = { question: string; purpose: string; topic: "gap" | "discrepancy" | "verify" | "motivation" };
 export type ReviewPoint = { point: string; detail: string };
 export type LinkedinComparison = { summary: string; matches: string[]; differences: ReviewPoint[] };
+// A judgement from the writing, not a test: nothing detects AI text reliably.
+export type AiResumeCheck = { verdict: "likely_ai" | "possibly_ai" | "likely_human" | "cannot_tell"; summary: string; signals: string[] };
 
 export type CandidateReview = {
   // "insufficient": nothing to judge yet (no resume, nothing in the notes) -
@@ -26,6 +28,8 @@ export type CandidateReview = {
   linkedinUrl: string | null;
   // Only when a LinkedIn profile PDF was uploaded. Missing on older reviews.
   linkedinComparison?: LinkedinComparison | null;
+  // Null with no resume. Missing on older reviews.
+  aiResume?: AiResumeCheck | null;
 };
 
 
@@ -46,7 +50,7 @@ const point = {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["suitability", "likelihoodPercent", "opinion", "summary", "positives", "gaps", "discrepancies", "questions", "linkedinUrl", "linkedinComparison"],
+  required: ["suitability", "likelihoodPercent", "opinion", "summary", "positives", "gaps", "discrepancies", "questions", "linkedinUrl", "linkedinComparison", "aiResume"],
   properties: {
     suitability: { type: "string", enum: ["strong", "good", "possible", "unlikely", "insufficient"] },
     likelihoodPercent: {
@@ -92,6 +96,22 @@ const SCHEMA = {
         { type: "null" },
       ],
     },
+    aiResume: {
+      description: "Whether the resume looks written or heavily polished by an AI tool. null when there is no resume.",
+      anyOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["verdict", "summary", "signals"],
+          properties: {
+            verdict: { type: "string", enum: ["likely_ai", "possibly_ai", "likely_human", "cannot_tell"] },
+            summary: { type: "string", description: "1-2 sentences: the judgement and the main reason, worded as an opinion, not a finding of fact." },
+            signals: { type: "array", items: { type: "string" }, description: "Each specific signal, quoting the resume. Empty if there are none." },
+          },
+        },
+        { type: "null" },
+      ],
+    },
   },
 };
 
@@ -118,6 +138,12 @@ LinkedIn comparison - only when a LinkedIn profile PDF is provided; otherwise li
 - Matches: what agrees. Differences: what conflicts, quoting both sides (e.g. resume says 2019-2023, LinkedIn says 2021-2023), plus any job or qualification on one and not the other. A shorter profile isn't a conflict in itself: LinkedIn giving less detail about a role isn't a difference.
 - Put serious differences in discrepancies too, and ask about them in the questions.
 - If the PDF isn't a LinkedIn profile or appears to be a different person, say so in the summary, leave matches and differences empty, and don't use it for anything else.
+
+AI-written resume check - only when a resume is provided; otherwise aiResume is null:
+- Judge whether the resume looks written or heavily polished by an AI tool. No test can prove this, so word it as an opinion and use cannot_tell when the evidence is thin.
+- Signals: the same sentence shape across every bullet and role; polished but empty claims with no names, tools, numbers or examples only the candidate would know; identical phrasing repeated across different jobs; duties that echo the job description word for word; the same stock phrases throughout; leftover prompts, placeholders or notes to the writer.
+- Not signals: good grammar, formal or non-native English, a professional template, neat formatting, or using a standard resume format.
+- Using AI to polish a resume is common and isn't dishonest in itself. Don't lower the likelihood or list it as a gap or discrepancy because of this. Only the claims matter: if the writing makes the experience hard to verify, add a question that tests the depth of the main claims.
 
 Earlier interviews - only when <earlier_interviews> is provided; this overview then prepares a later interview for the same job:
 - They are the strongest evidence you have. Use the comments everyone wrote, the scores and the transcripts, and say which interview and whose comment each point comes from.
@@ -213,6 +239,7 @@ export async function reviewCandidate(input: {
     review.likelihoodPercent = Math.max(0, Math.min(100, Math.round(review.likelihoodPercent)));
   }
   if (!inputs.linkedinPdf) review.linkedinComparison = null;
+  if (!inputs.resume) review.aiResume = null;
   if (review.linkedinUrl && !/^https:\/\/([a-z]+\.)?linkedin\.com\//i.test(review.linkedinUrl)) review.linkedinUrl = null;
   return review;
 }

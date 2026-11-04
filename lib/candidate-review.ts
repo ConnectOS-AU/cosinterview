@@ -7,7 +7,7 @@ import { gatherReviewInputs, type ReviewInputs } from "./review-inputs";
 import { jobAdderWriteConfigured, logToJobAdder } from "./staff/jobadder-api";
 import { supabaseAdmin } from "./supabase/admin";
 import type { InviteRecord } from "./types";
-import { SUITABILITY_LABEL } from "./review-labels";
+import { AI_RESUME_LABEL, SUITABILITY_LABEL } from "./review-labels";
 import { reviewCandidate, type CandidateReview, type LinkedinComparison } from "./worker/review";
 import { SUMMARY_MODEL, summaryConfigured } from "./worker/summarise";
 
@@ -254,6 +254,7 @@ export function reviewNoteText(invite: InviteRecord, review: CandidateReview, so
     ...(sources.linkedinPdfFile ? [`LinkedIn PDF (${sources.linkedinPdfFile})`] : []),
   ].join(", ");
   const compared = review.linkedinComparison;
+  const ai = review.aiResume;
   return [
     `Candidate overview before interview - COSInterview (AI-assisted, advisory only)${invite.interview.jobTitle ? ` for ${invite.interview.jobTitle}` : ""}.`,
     review.likelihoodPercent === null
@@ -264,6 +265,7 @@ export function reviewNoteText(invite: InviteRecord, review: CandidateReview, so
     `Positives\n${list(review.positives)}`,
     `Gaps\n${points(review.gaps)}`,
     `Discrepancies\n${points(review.discrepancies)}`,
+    ...(ai ? [`AI-written resume check (an opinion, not proof): ${AI_RESUME_LABEL[ai.verdict]}\n${ai.summary}${ai.signals.length ? `\n${list(ai.signals)}` : ""}`] : []),
     ...(compared ? [`LinkedIn comparison\n${compared.summary}\nMatches\n${list(compared.matches)}\nDifferences\n${points(compared.differences)}`] : []),
     `Questions to ask\n${review.questions.map((q, i) => `${i + 1}. ${q.question} (${q.purpose})`).join("\n")}`,
     `Based on: ${based}.${sources.linkedinUrl ? `\nLinkedIn: ${sources.linkedinUrl}${sources.linkedinPdfFile ? "" : " - not reviewed automatically; upload the profile PDF to compare it."}` : ""}`,
@@ -327,6 +329,14 @@ const DEMO_REVIEW: CandidateReview = {
     { question: "What attracts you to this role in particular?", purpose: "Motivation for the move.", topic: "motivation" },
   ],
   linkedinUrl: "https://www.linkedin.com/in/maria-santos-example",
+  aiResume: {
+    verdict: "possibly_ai",
+    summary: "Parts of the resume read as AI-polished, but the current role has specifics only Maria would know, so this is an opinion rather than a finding.",
+    signals: [
+      'Every bullet in the 2021 role follows the same shape: "Leveraged X to drive Y".',
+      'The summary repeats the job description\'s "exceptional customer-centric communication".',
+    ],
+  },
 };
 
 const DEMO_COMPARISON: LinkedinComparison = {
@@ -357,6 +367,7 @@ const DEMO_UNKNOWN: CandidateReview = {
     { question: "What made you interested in this role?", purpose: "Motivation.", topic: "motivation" },
   ],
   linkedinUrl: null,
+  aiResume: null,
 };
 
 async function runDemoReview(invite: InviteRecord): Promise<"done"> {
