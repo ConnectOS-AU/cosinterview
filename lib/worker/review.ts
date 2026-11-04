@@ -146,6 +146,7 @@ AI-written resume check - only when a resume is provided; otherwise aiResume is 
 - Using AI to polish a resume is common and isn't dishonest in itself. Don't lower the likelihood or list it as a gap or discrepancy because of this. Only the claims matter: if the writing makes the experience hard to verify, add a question that tests the depth of the main claims.
 
 Earlier interviews - only when <earlier_interviews> is provided; this overview then prepares a later interview for the same job:
+- Comments name their author's part in brackets. (recruiter) is our own recruiter, never the client. Only a (client) comment is the client's view.
 - They are the strongest evidence you have. Use the comments everyone wrote, the scores and the transcripts, and say which interview and whose comment each point comes from.
 - Likelihood: start from the figure after the latest interview and move it only for evidence that view didn't already weigh, such as a comment added since. Don't go back to judging from the resume alone.
 - Summary, positives, gaps and discrepancies: carry the picture forward. Don't list as a gap or discrepancy something an interview settled, and keep what is still open, including concerns raised by a comment.

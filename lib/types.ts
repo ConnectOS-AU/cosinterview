@@ -69,6 +69,7 @@ export type RecruiterProfile = {
   displayName: string;
   title: string | null;
   photoPath: string | null;
+  interviewBackgroundPath: string | null;
   bio: string | null;
   welcomeMessage: string | null;
   timezone: string;

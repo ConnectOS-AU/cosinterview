@@ -34,6 +34,7 @@ export default async function ProfilePage() {
           welcomeMessage: recruiter.welcomeMessage ?? "",
           timezone: recruiter.timezone,
           photoUrl: recruiterPhotoUrl(recruiter.photoPath),
+          backgroundUrl: recruiterPhotoUrl(recruiter.interviewBackgroundPath),
           calendarEmail: recruiter.calendarEmail,
         }}
       />

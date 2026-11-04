@@ -56,6 +56,7 @@ function seed(): DemoStore {
     displayName: "Rei Agustin",
     title: "Talent Acquisition Specialist",
     photoPath: null,
+    interviewBackgroundPath: null,
     bio: "I've helped hundreds of Filipino professionals start rewarding careers with Australian and US businesses.",
     welcomeMessage:
       "Hi! Thanks for your interest in this role. Pick a time that suits you and I'll look forward to meeting you.",

@@ -4,7 +4,7 @@ import { joinWindow, publicRecruiter } from "@/lib/invite";
 import { getJobDescription } from "@/lib/job-description";
 import { stageLabel, stagePrefix } from "@/lib/stages";
 import { Notice, PortalShell } from "../../c/portal-shell";
-import { loadGuestNotes } from "./actions";
+import { loadGuestAdvice, loadGuestNotes } from "./actions";
 import { GuestRoom } from "./guest-room";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +39,7 @@ export default async function GuestLobbyPage({ params }: Props) {
     );
   }
 
-  const [jobHtml, notes] = await Promise.all([getJobDescription(invite.interview.jobadderJobId), loadGuestNotes(token)]);
+  const [jobHtml, notes, advice] = await Promise.all([getJobDescription(invite.interview.jobadderJobId), loadGuestNotes(token), loadGuestAdvice(token)]);
   const window = joinWindow(invite);
   return (
     <GuestRoom
@@ -56,6 +56,8 @@ export default async function GuestLobbyPage({ params }: Props) {
       finished={invite.status === "completed" || invite.status === "no_show"}
       jobHtml={jobHtml}
       initialNotes={notes}
+      canAdvise={guest.role === "client"}
+      initialAdvice={advice}
     />
   );
 }

@@ -166,6 +166,21 @@ export function recruiterBookingEmail(input: {
   };
 }
 
+// To the recruiter once the overview after an interview is written. `overview` is
+// what goes into JobAdder: blank-line separated sections.
+export function recruiterOverviewEmail(input: { candidateName: string; jobTitle: string | null; overview: string; link: string }): EmailContent {
+  const sections = input.overview.split("\n\n");
+  return {
+    subject: `Candidate overview: ${input.candidateName}${input.jobTitle ? ` – ${input.jobTitle}` : ""}`,
+    bodyHtml: `
+<div ${WRAP}>
+  ${sections.map((s) => `<p>${escape(s).replace(/\n/g, "<br>")}</p>`).join("\n  ")}
+  <p><a href="${escape(input.link)}" ${BUTTON}>Open the candidate overview</a></p>
+</div>`.trim(),
+    text: [input.overview, `Open the candidate overview: ${input.link}`].join("\n\n"),
+  };
+}
+
 // Sent 24 hours and 2 hours before the interview. roomLink is null when the
 // candidate's link couldn't be recovered; they're pointed to their confirmation.
 export async function reminderEmail(

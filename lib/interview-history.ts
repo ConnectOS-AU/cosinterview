@@ -5,7 +5,7 @@ import { getCandidateReview } from "./candidate-review";
 import { demoInvites, demoMode } from "./demo";
 import { getInterviewRecord, type InterviewRecord } from "./staff/transcripts";
 import { listNotes } from "./staff/repo";
-import { noteLine, STAGES, stageLabel, type Stage } from "./stages";
+import { noteForAi, STAGES, stageLabel, type Stage } from "./stages";
 import { supabaseAdmin } from "./supabase/admin";
 import type { BookingStatus, InterviewNote, InviteRecord } from "./types";
 import type { CandidateDebrief } from "./worker/debrief";
@@ -110,7 +110,7 @@ export function earlierInterviewsText(rounds: HistoryRound[]): string | null {
     .map((round) => {
       const date = round.slotStart ? DateTime.fromISO(round.slotStart, { zone: "Asia/Manila" }).toFormat("d LLL yyyy") : "date not recorded";
       const header = `${stageLabel(round.stage)}, ${date}${round.interviewer ? `, with ${round.interviewer}` : ""}`;
-      const comments = `Everyone's comments:\n${round.notes.map((n) => `- ${noteLine("", n).trim()}`).join("\n") || "(none)"}`;
+      const comments = `Everyone's comments:\n${round.notes.map((n) => `- ${noteForAi(n)}`).join("\n") || "(none)"}`;
       if (round.status === "no_show") return `<interview>\n${header}\nThe candidate didn't attend.\n${comments}\n</interview>`;
       const summary = round.record?.summary;
       const d = round.debrief;

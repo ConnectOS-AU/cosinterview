@@ -100,6 +100,7 @@ Do this:
 - Answers: for each suggested question, find where it (or something close to it) was asked and summarise what the candidate said, with the time. Judge the outcome: resolved (the answer settles what the question was checking), partly, concern (the answer raised a doubt) or not_asked.
 - Addressed: the pre-interview gaps and discrepancies the interview settled.
 - Concerns: those still open, plus anything new the interview raised (isNew). Use the attendees' notes too - say whose note it was.
+- Note authors: each note names its author's part in brackets. (recruiter) is our own recruiter, who is never the client, whatever company they work for. (client) is someone from the hiring client. (other attendee) is neither. Only call someone the client, or a view the client's, when the note is marked (client).
 - Notes: every note counts as evidence from the interview, and a client's view weighs heavily on whether they'd hire. Reflect each one that bears on suitability in the opinion, the concerns or the likelihood.
 - Earlier interviews: compare this one with them. Say what has improved, what has slipped and what is still unresolved across interviews, and don't call something new if it came up before.
 - No transcript: if the transcript says there isn't one, work from the notes alone and say so in the opinion. Mark a suggested question not_asked unless a note shows the answer, and be more cautious moving the likelihood.

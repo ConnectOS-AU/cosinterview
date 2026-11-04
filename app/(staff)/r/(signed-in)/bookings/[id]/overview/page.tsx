@@ -5,6 +5,8 @@ import { getDebrief, likelihoodTimeline, NEXT_STEP_LABEL, OUTCOME_LABEL, type De
 import { getLinkedinCheck, LINKEDIN_OUTCOME_LABEL, type LinkedinCheck } from "@/lib/linkedin-check";
 import { getCandidateReview, type ReviewState } from "@/lib/candidate-review";
 import { interviewHistory } from "@/lib/interview-history";
+import { adviceIn } from "@/lib/stages";
+import type { InterviewNote } from "@/lib/staff/repo";
 import { arrivalLabel, arrivalTrend, candidateArrivals, type Arrival, type ArrivalOutcome } from "@/lib/punctuality";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
@@ -69,6 +71,8 @@ export default async function CandidateOverviewPage({ params }: Props) {
 
       {timeline.length > 1 && <Timeline points={timeline} current={invite.bookingId} />}
 
+      <ClientAdviceCard notes={history.find((r) => r.bookingId === invite.bookingId)?.notes ?? []} />
+
       <InterviewHistory rounds={history} current={invite.bookingId} zone={zone} />
 
       {arrivals.length > 0 && <Punctuality arrivals={arrivals} current={invite.bookingId} zone={zone} />}
@@ -108,6 +112,25 @@ export default async function CandidateOverviewPage({ params }: Props) {
 
 function Notice({ children }: { children: React.ReactNode }) {
   return <div className="space-y-3 rounded-lg border border-dashed border-neutral-300 bg-white px-5 py-6 text-sm text-neutral-600">{children}</div>;
+}
+
+function ClientAdviceCard({ notes }: { notes: InterviewNote[] }) {
+  const advice = notes.flatMap((n) => {
+    const given = adviceIn(n.body);
+    return given ? [{ id: n.id, name: n.authorName ?? "Client", label: given.label }] : [];
+  });
+  if (advice.length === 0) return null;
+  return (
+    <Card title="Client's advice">
+      <ul className="space-y-1 text-sm text-neutral-700">
+        {advice.map((a) => (
+          <li key={a.id}>
+            <span className="font-medium text-neutral-900">{a.name}:</span> {a.label}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
 }
 
 function Card({ title, tone, children }: { title: string; tone?: string; children: React.ReactNode }) {
