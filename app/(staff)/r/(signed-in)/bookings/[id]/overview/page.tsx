@@ -8,10 +8,10 @@ import { interviewHistory } from "@/lib/interview-history";
 import { arrivalLabel, arrivalTrend, candidateArrivals, type Arrival, type ArrivalOutcome } from "@/lib/punctuality";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
-import { SUITABILITY_LABEL, TOPIC_LABEL } from "@/lib/review-labels";
+import { AI_RESUME_LABEL, SUITABILITY_LABEL, TOPIC_LABEL } from "@/lib/review-labels";
 import { stageLabel } from "@/lib/stages";
 import type { CandidateDebrief } from "@/lib/worker/debrief";
-import type { CandidateReview } from "@/lib/worker/review";
+import type { AiResumeCheck, CandidateReview } from "@/lib/worker/review";
 import { InterviewHistory } from "./interview-history";
 import { ReviewControls } from "./review-controls";
 
@@ -175,6 +175,8 @@ function Review({
         </Card>
       </div>
 
+      {review.aiResume && <AiResume check={review.aiResume} />}
+
       {review.linkedinComparison && (
         <Card title="LinkedIn profile compared with the resume">
           <p className="max-w-3xl text-sm leading-relaxed text-neutral-700">{review.linkedinComparison.summary}</p>
@@ -257,6 +259,28 @@ function Review({
         </div>
       </Card>
     </>
+  );
+}
+
+const AI_RESUME_STYLE: Record<AiResumeCheck["verdict"], string> = {
+  likely_ai: "bg-amber-50 text-amber-800 ring-amber-200",
+  possibly_ai: "bg-amber-50 text-amber-800 ring-amber-200",
+  likely_human: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  cannot_tell: "bg-neutral-100 text-neutral-700 ring-neutral-300",
+};
+
+function AiResume({ check }: { check: AiResumeCheck }) {
+  return (
+    <Card title="Was the resume written with AI?">
+      <span className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ring-1 ${AI_RESUME_STYLE[check.verdict]}`}>{AI_RESUME_LABEL[check.verdict]}</span>
+      <p className="mt-3 max-w-3xl text-sm leading-relaxed text-neutral-700">{check.summary}</p>
+      {check.signals.length > 0 && (
+        <div className="mt-3 max-w-3xl">
+          <List items={check.signals} empty="" />
+        </div>
+      )}
+      <p className="mt-3 text-xs text-neutral-500">An AI opinion from the writing, not proof. It doesn&apos;t change the likelihood: test the claims in the interview.</p>
+    </Card>
   );
 }
 
