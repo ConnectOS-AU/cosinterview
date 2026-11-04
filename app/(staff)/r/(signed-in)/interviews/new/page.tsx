@@ -5,10 +5,13 @@ import { mailConfigured } from "@/lib/mail";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { jobsWithRecruiter } from "@/lib/staff/job-detail";
 import { getJob, listActiveJobs, listApplications } from "@/lib/staff/jobadder";
-import { stagesForJob } from "@/lib/staff/repo";
-import type { JobAdderJob } from "@/lib/types";
+import { stagesForJob, type CandidateStage } from "@/lib/staff/repo";
+import { STATUS_BADGE } from "@/lib/staff/status";
+import { nextStage, stageLabel, STAGES } from "@/lib/stages";
+import type { JobAdderApplication, JobAdderJob } from "@/lib/types";
 import { CandidatePicker } from "./candidate-picker";
 import { ClientSelect } from "./client-select";
+import { ProgressBoard, type BoardCandidate, type BoardJob } from "./progress-board";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +58,18 @@ async function ChooseJob({ q, client }: { q: string; client: string }) {
   for (const id of recruiting) roles.set(id, "Recruiter");
   const own = jobs.filter((j) => roles.has(j.jobId));
   const others = jobs.filter((j) => !roles.has(j.jobId));
+  const board: BoardJob[] = await Promise.all(
+    own.map(async (job) => {
+      const [applications, stages] = await Promise.all([listApplications(job.jobId), stagesForJob(job.jobId)]);
+      return {
+        jobId: job.jobId,
+        title: job.title,
+        companyName: job.companyName,
+        role: roles.get(job.jobId)!,
+        candidates: applications.flatMap((a) => awaitingNextStep(a, stages.get(a.candidateId) ?? [])),
+      };
+    }),
+  );
 
   return (
     <>
@@ -75,19 +90,42 @@ async function ChooseJob({ q, client }: { q: string; client: string }) {
           </Link>
         )}
       </form>
-      <p className="text-sm text-neutral-500">Pick the JobAdder job you&apos;re interviewing for. Only open and on-hold jobs are shown.</p>
-      <JobList
-        title="Your jobs"
-        jobs={own}
-        roles={roles}
-        empty={filtered ? "None of your jobs match." : "No open jobs where you're the owner or a recruiter."}
-      />
+      <p className="text-sm text-neutral-500">Only open and on-hold jobs are shown.</p>
+      <section>
+        <h2 className="text-sm font-semibold text-neutral-700">Your jobs</h2>
+        <p className="mb-2 text-sm text-neutral-500">Candidates waiting for a next step. Tick them to invite them to their next stage or one you choose.</p>
+        <ProgressBoard
+          jobs={board}
+          canEmail={mailConfigured()}
+          emptyText={filtered ? "None of your jobs match." : "No open jobs where you're the owner or a recruiter."}
+        />
+      </section>
       <JobList title="Other active jobs" jobs={others} empty="No other jobs match." />
     </>
   );
 }
 
-function JobList({ title, jobs, empty, roles }: { title: string; jobs: JobAdderJob[]; empty: string; roles?: Map<string, string> }) {
+// Someone with no interview open on this job, and a stage still ahead of them.
+function awaitingNextStep(application: JobAdderApplication, interviews: CandidateStage[]): BoardCandidate[] {
+  const next = nextStage(interviews);
+  if (!next || interviews.some((i) => i.status === "invited" || i.status === "booked" || i.status === "in_progress")) return [];
+  const latest = interviews.reduce<CandidateStage | null>((a, b) => (!a || stageOrder(b) > stageOrder(a) ? b : a), null);
+  return [
+    {
+      candidateId: application.candidateId,
+      name: application.candidateName,
+      email: application.candidateEmail,
+      jobAdderStage: [application.statusName, application.stage].filter(Boolean).join(" · ") || null,
+      unsubscribed: application.unsubscribed,
+      last: latest && `${stageLabel(latest.stage)} ${STATUS_BADGE[latest.status].label.toLowerCase()}`,
+      next,
+    },
+  ];
+}
+
+const stageOrder = (entry: CandidateStage) => STAGES.findIndex((s) => s.key === entry.stage);
+
+function JobList({ title, jobs, empty }: { title: string; jobs: JobAdderJob[]; empty: string }) {
   return (
     <section>
       <h2 className="mb-2 text-sm font-semibold text-neutral-700">{title}</h2>
@@ -104,9 +142,6 @@ function JobList({ title, jobs, empty, roles }: { title: string; jobs: JobAdderJ
                 <span>
                   <span className="font-medium text-neutral-900">{job.title}</span>
                   {job.companyName && <span className="text-neutral-500"> · {job.companyName}</span>}
-                  {roles?.get(job.jobId) && (
-                    <span className="ml-2 rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-medium text-neutral-600">{roles.get(job.jobId)}</span>
-                  )}
                 </span>
                 <span className="text-xs text-neutral-500">
                   {job.statusName}

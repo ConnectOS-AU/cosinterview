@@ -232,7 +232,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   );
 }
 
-function Results({ sent, skipped }: { sent: SentInvite[]; skipped: string[] }) {
+export function Results({ sent, skipped, failed = [] }: { sent: SentInvite[]; skipped: string[]; failed?: string[] }) {
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
@@ -256,7 +256,8 @@ function Results({ sent, skipped }: { sent: SentInvite[]; skipped: string[] }) {
           ))}
         </ul>
       )}
-      {skipped.length > 0 && <p className="text-sm text-neutral-500">Skipped (already invited or no email): {skipped.join(", ")}.</p>}
+      {skipped.length > 0 && <p className="text-sm text-neutral-500">Skipped (already invited to that stage or no email): {skipped.join(", ")}.</p>}
+      {failed.length > 0 && <p className="text-sm text-red-600">Not invited, please try again: {failed.join("; ")}.</p>}
       <div className="flex gap-3">
         <Link href="/r" className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800">
           Back to interviews

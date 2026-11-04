@@ -17,6 +17,13 @@ export const STAGES = [
 
 export type Stage = (typeof STAGES)[number]["key"];
 
+// The stage after the furthest one a candidate has reached on a job, or null
+// after the last. Stages can be skipped, so it follows their latest, not a count.
+export function nextStage(reached: readonly { stage: Stage }[]): Stage | null {
+  const furthest = Math.max(-1, ...reached.map((r) => STAGES.findIndex((s) => s.key === r.stage)));
+  return STAGES[furthest + 1]?.key ?? null;
+}
+
 // Extra people on an interview: client attendees (client interviews only)
 // and "Other" (any interview - another recruiter, a last-minute addition).
 export type GuestRole = "client" | "other";
