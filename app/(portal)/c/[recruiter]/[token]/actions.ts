@@ -6,10 +6,11 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { googleCalendarUrl, icsFile, outlookCalendarUrl } from "@/lib/calendar";
 import { demoMode } from "@/lib/demo";
-import { bookingConfirmationEmail, candidateVars, formatSlot, messageText, recruiterEventBody } from "@/lib/emails";
-import { createInterviewEvent, graphConfigured } from "@/lib/graph";
+import { bookingConfirmationEmail, candidateVars, formatSlot, messageText, recruiterBookingEmail, recruiterEventBody } from "@/lib/emails";
+import { createInterviewEvent, deleteInterviewEvent, graphConfigured } from "@/lib/graph";
 import {
   availableSlots,
+  canChangeTime,
   candidateCalendarEvent,
   invitePath,
   inviteExpired,
@@ -20,12 +21,14 @@ import {
 import { mailConfigured, mailForNote, sendCandidateMail } from "@/lib/mail";
 import { messageCandidate, normalisePhone } from "@/lib/messaging";
 import { allowRequest } from "@/lib/rate-limit";
-import { claimSlot, saveCandidateNumbers, saveGraphEvent, saveInviteLink } from "@/lib/repo";
+import { claimSlot, moveSlot, saveCandidateNumbers, saveGraphEvent, saveInviteLink } from "@/lib/repo";
 import { roomForBooking } from "@/lib/rooms";
 import { runCandidateReview } from "@/lib/candidate-review";
 import { recordArrival } from "@/lib/punctuality";
 import { suggestNumbers, type SuggestedNumbers } from "@/lib/candidate-numbers";
 import { logToJobAdder } from "@/lib/staff/jobadder-api";
+import { listGuests } from "@/lib/guests";
+import { stageLabel } from "@/lib/stages";
 import type { InviteRecord } from "@/lib/types";
 
 async function clientKey(action: string): Promise<string> {
@@ -55,6 +58,26 @@ export async function suggestedNumbers(recruiter: string, token: string): Promis
 
 export type BookResult = { ok: true } | { ok: false; error: string; refresh?: boolean };
 
+const SLOT_TAKEN = "Sorry, that time has just been taken. Please pick another.";
+
+function parseNumbers(input: { whatsapp?: string; viber?: string }): { whatsapp: string | null; viber: string | null } | { error: string } {
+  const whatsapp = input.whatsapp?.trim() ? normalisePhone(input.whatsapp) : null;
+  if (input.whatsapp?.trim() && !whatsapp) return { error: "Please check your WhatsApp number, or leave it empty." };
+  const viber = input.viber?.trim() ? normalisePhone(input.viber) : null;
+  if (input.viber?.trim() && !viber) return { error: "Please check your Viber number, or leave it empty." };
+  return { whatsapp, viber };
+}
+
+// The chosen time, re-checked against live availability: it may have gone since
+// the page loaded.
+async function pickedSlot(invite: InviteRecord, slotStart: string): Promise<{ startIso: string; endIso: string } | null> {
+  const slots = await availableSlots(invite);
+  const start = DateTime.fromISO(slotStart, { zone: "utc" });
+  const startIso = start.isValid ? start.toISO() : null;
+  if (!startIso || !slots.includes(startIso)) return null;
+  return { startIso, endIso: start.plus({ minutes: invite.interview.durationMins }).toISO()! };
+}
+
 export async function bookInterview(input: {
   recruiter: string;
   token: string;
@@ -74,19 +97,13 @@ export async function bookInterview(input: {
     return { ok: false, error: "This invite has expired. Please contact your recruiter.", refresh: true };
   }
   if (!input.consent) return { ok: false, error: "Please agree to the interview being recorded to continue." };
-  const whatsapp = input.whatsapp?.trim() ? normalisePhone(input.whatsapp) : null;
-  if (input.whatsapp?.trim() && !whatsapp) return { ok: false, error: "Please check your WhatsApp number, or leave it empty." };
-  const viber = input.viber?.trim() ? normalisePhone(input.viber) : null;
-  if (input.viber?.trim() && !viber) return { ok: false, error: "Please check your Viber number, or leave it empty." };
+  const numbers = parseNumbers(input);
+  if ("error" in numbers) return { ok: false, error: numbers.error };
+  const { whatsapp, viber } = numbers;
 
-  // Re-check against live availability: the slot may have gone since the page loaded.
-  const slots = await availableSlots(invite);
-  const start = DateTime.fromISO(input.slotStart, { zone: "utc" });
-  const startIso = start.isValid ? start.toISO() : null;
-  if (!startIso || !slots.includes(startIso)) {
-    return { ok: false, error: "Sorry, that time has just been taken. Please pick another.", refresh: true };
-  }
-  const endIso = start.plus({ minutes: invite.interview.durationMins }).toISO()!;
+  const picked = await pickedSlot(invite, input.slotStart);
+  if (!picked) return { ok: false, error: SLOT_TAKEN, refresh: true };
+  const { startIso, endIso } = picked;
 
   const claimed = await claimSlot(invite.bookingId, {
     slotStart: startIso,
@@ -94,9 +111,7 @@ export async function bookInterview(input: {
     candidateTimezone: validTimezone(input.timezone) ? input.timezone : invite.recruiter.timezone,
     consentAt: new Date().toISOString(),
   });
-  if (claimed === "taken") {
-    return { ok: false, error: "Sorry, that time has just been taken. Please pick another.", refresh: true };
-  }
+  if (claimed === "taken") return { ok: false, error: SLOT_TAKEN, refresh: true };
   if (claimed !== "ok") return { ok: false, error: "This interview is already booked.", refresh: true };
   if (whatsapp || viber || invite.candidateWhatsapp || invite.candidateViber) {
     try {
@@ -124,7 +139,64 @@ export async function bookInterview(input: {
   return { ok: true };
 }
 
-async function afterBooking(booked: InviteRecord, token: string): Promise<void> {
+// The candidate moving their own booking. Their current time stays booked unless
+// the new one is free.
+export async function changeInterviewTime(input: {
+  recruiter: string;
+  token: string;
+  slotStart: string;
+  timezone: string;
+  whatsapp?: string;
+  viber?: string;
+}): Promise<BookResult> {
+  if (!allowRequest(await clientKey("book"), 10, 60_000)) {
+    return { ok: false, error: "Too many attempts. Please wait a minute and try again." };
+  }
+  const invite = await loadInvite(input.recruiter, input.token);
+  if (!invite) return { ok: false, error: "This invite link isn't valid." };
+  if (!canChangeTime(invite)) {
+    return { ok: false, error: "This interview can't be moved online now. Please reply to your invitation email.", refresh: true };
+  }
+  const numbers = parseNumbers(input);
+  if ("error" in numbers) return { ok: false, error: numbers.error };
+  const picked = await pickedSlot(invite, input.slotStart);
+  if (!picked) return { ok: false, error: SLOT_TAKEN, refresh: true };
+
+  // Read before moving: the move clears these.
+  const was = formatSlot(invite.slotStart!, invite.slotEnd!, invite.recruiter.timezone);
+  const oldGraphEventId = invite.graphEventId;
+  const candidateTimezone = validTimezone(input.timezone) ? input.timezone : (invite.candidateTimezone ?? invite.recruiter.timezone);
+  const moved = await moveSlot(invite.bookingId, invite.slotStart!, { slotStart: picked.startIso, slotEnd: picked.endIso, candidateTimezone });
+  if (moved === "taken") return { ok: false, error: SLOT_TAKEN, refresh: true };
+  if (moved !== "ok") return { ok: false, error: "This interview can't be moved now. Please refresh the page.", refresh: true };
+
+  if (numbers.whatsapp !== invite.candidateWhatsapp || numbers.viber !== invite.candidateViber) {
+    try {
+      await saveCandidateNumbers(invite.bookingId, numbers);
+    } catch (err) {
+      console.error("[move] Saving WhatsApp/Viber numbers failed", invite.bookingId, err);
+    }
+  }
+
+  const updated: InviteRecord = {
+    ...invite,
+    slotStart: picked.startIso,
+    slotEnd: picked.endIso,
+    candidateTimezone,
+    candidateWhatsapp: numbers.whatsapp,
+    candidateViber: numbers.viber,
+    dailyRoomName: null,
+    dailyRoomUrl: null,
+    graphEventId: null,
+  };
+  after(() => afterBooking(updated, input.token, { was, oldGraphEventId }));
+
+  revalidatePath(invitePath(invite, input.token));
+  return { ok: true };
+}
+
+// Everything after a booking or, with `moved`, a candidate changing its time.
+async function afterBooking(booked: InviteRecord, token: string, moved?: { was: string; oldGraphEventId: string | null }): Promise<void> {
   const { recruiter, interview } = booked;
   const start = booked.slotStart!;
   const end = booked.slotEnd!;
@@ -155,6 +227,8 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
           jobTitle: interview.jobTitle,
           clientName: interview.clientName,
           candidateWhen: candidateZone === recruiter.timezone ? null : candidateWhen,
+          whatsapp: booked.candidateWhatsapp,
+          viber: booked.candidateViber,
           link,
         }),
         start,
@@ -164,6 +238,41 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
       await saveGraphEvent(booked.bookingId, eventId);
     } catch (err) {
       console.error("[book] Outlook event creation failed", booked.bookingId, err);
+    }
+    if (moved?.oldGraphEventId) {
+      await deleteInterviewEvent(recruiter.calendarEmail, moved.oldGraphEventId).catch((err) =>
+        console.error("[book] Removing the old Outlook event failed", booked.bookingId, err),
+      );
+    }
+  }
+
+  // The recruiter's email, so they hear about it without watching the calendar.
+  if (mailConfigured()) {
+    try {
+      const attendees = moved ? (await listGuests(booked.bookingId)).length : 0;
+      const notice = recruiterBookingEmail({
+        candidateName: booked.candidateName,
+        candidateEmail: booked.candidateEmail,
+        jobTitle: interview.jobTitle,
+        clientName: interview.clientName,
+        stage: stageLabel(interview.stage),
+        when: recruiterWhen,
+        candidateWhen: candidateZone === recruiter.timezone ? null : candidateWhen,
+        whatsapp: booked.candidateWhatsapp,
+        viber: booked.candidateViber,
+        moved: moved ? { was: moved.was, attendees } : null,
+        link: `${siteUrl()}/r/bookings/${booked.bookingId}`,
+      });
+      await sendCandidateMail({
+        to: { name: recruiter.displayName, email: recruiter.calendarEmail },
+        recruiter: { name: booked.candidateName, email: booked.candidateEmail },
+        fromName: "COSInterview",
+        subject: notice.subject,
+        html: notice.bodyHtml,
+        text: notice.text,
+      });
+    } catch (err) {
+      console.error("[book] Recruiter notification failed", booked.bookingId, err);
     }
   }
 
@@ -212,7 +321,8 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
 
   // 3. JobAdder: the time the candidate chose, and the confirmation they got.
   const summary = [
-    `Interview booked by the candidate via COSInterview${interview.jobTitle ? ` for ${interview.jobTitle}` : ""}.`,
+    `Interview ${moved ? "moved" : "booked"} by the candidate via COSInterview${interview.jobTitle ? ` for ${interview.jobTitle}` : ""}.`,
+    ...(moved ? [`Was: ${moved.was}`] : []),
     `When: ${recruiterWhen}${candidateZone === recruiter.timezone ? "" : ` / candidate's time: ${candidateWhen}`}`,
     `Length: ${interview.durationMins} minutes. Recruiter: ${recruiter.displayName}.`,
   ].join("\n");
@@ -220,7 +330,7 @@ async function afterBooking(booked: InviteRecord, token: string): Promise<void> 
 
   // 4. The candidate overview for the recruiter (resume and notes against the
   // job description), also added to JobAdder. Last, as it takes a minute.
-  await runCandidateReview(booked);
+  if (!moved) await runCandidateReview(booked);
 }
 
 export type RoomAccess =

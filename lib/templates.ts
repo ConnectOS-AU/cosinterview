@@ -157,7 +157,7 @@ export const DEFAULT_TEMPLATES: Templates = {
         "**Add it to your calendar:** open the attached connectos-interview.ics file, or use [Google Calendar]({{googleCalendarUrl}}) · [Outlook.com]({{outlookCalendarUrl}}).",
       button: "Join the interview",
       footer:
-        "The room opens 15 minutes before the start time. Use a computer or phone with a camera and microphone - there's nothing to install. Need to check your booking? [View it here]({{bookingPage}}).",
+        "The room opens 15 minutes before the start time. Use a computer or phone with a camera and microphone - there's nothing to install. Need to check or change your booking? [View it here]({{bookingPage}}).",
     },
     reminder24h: {
       subject: "Reminder: your ConnectOS interview{{dashJob}}",

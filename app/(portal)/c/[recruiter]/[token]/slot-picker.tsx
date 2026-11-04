@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
 import { PRIVACY_POLICY_URL } from "@/lib/site";
-import { bookInterview, suggestedNumbers } from "./actions";
+import { bookInterview, changeInterviewTime, suggestedNumbers } from "./actions";
 
 type Props = {
   recruiterSlug: string;
@@ -13,19 +13,22 @@ type Props = {
   slots: string[];
   durationMins: number;
   recruiterFirstName: string;
+  // Moving an existing booking: consent was given when booking, and the numbers start as they were.
+  moving?: boolean;
+  numbers?: { whatsapp: string | null; viber: string | null };
 };
 
 // Day chips, then times for that day, in the candidate's own time zone
 // (detected from the browser), then WhatsApp/Viber numbers (optional), consent and book.
-export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruiterFirstName }: Props) {
+export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruiterFirstName, moving = false, numbers }: Props) {
   const router = useRouter();
   const [zone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Manila");
   const days = useMemo(() => groupByDay(slots, zone), [slots, zone]);
   const [dayKey, setDayKey] = useState<string | null>(days[0]?.key ?? null);
   const [slot, setSlot] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
-  const [whatsapp, setWhatsapp] = useState("");
-  const [viber, setViber] = useState("");
+  const [whatsapp, setWhatsapp] = useState(numbers?.whatsapp ?? "");
+  const [viber, setViber] = useState(numbers?.viber ?? "");
   // Where filled-in numbers came from, for the note under the fields.
   const [prefilled, setPrefilled] = useState<string | null>(null);
   const touched = useRef(false);
@@ -33,6 +36,7 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
   // Fill in numbers from the candidate's profile and resume (looked up in the
   // background), unless they've already started typing.
   useEffect(() => {
+    if (moving) return;
     let live = true;
     suggestedNumbers(recruiterSlug, token)
       .then((s) => {
@@ -45,7 +49,7 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
     return () => {
       live = false;
     };
-  }, [recruiterSlug, token]);
+  }, [recruiterSlug, token, moving]);
 
   const edit = (set: (v: string) => void) => (v: string) => {
     touched.current = true;
@@ -69,8 +73,11 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
     if (!slot) return;
     setError(null);
     startTransition(async () => {
-      const result = await bookInterview({ recruiter: recruiterSlug, token, slotStart: slot, timezone: zone, consent, whatsapp, viber });
+      const result = moving
+        ? await changeInterviewTime({ recruiter: recruiterSlug, token, slotStart: slot, timezone: zone, whatsapp, viber })
+        : await bookInterview({ recruiter: recruiterSlug, token, slotStart: slot, timezone: zone, consent, whatsapp, viber });
       if (result.ok) {
+        if (moving) router.replace(`/c/${recruiterSlug}/${token}`);
         router.refresh();
         return;
       }
@@ -168,6 +175,7 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
             )}
             <p className="text-xs text-brand-faint">Include your country code if you&apos;re outside the Philippines, e.g. +61 412 345 678.</p>
           </fieldset>
+          {!moving && (
           <label className="flex items-start gap-3 text-sm text-brand-text">
             <input
               type="checkbox"
@@ -184,6 +192,7 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
               .
             </span>
           </label>
+          )}
           {error && (
             <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200">
               {error}
@@ -192,10 +201,10 @@ export function SlotPicker({ recruiterSlug, token, slots, durationMins, recruite
           <button
             type="button"
             onClick={book}
-            disabled={!consent || pending}
+            disabled={(!moving && !consent) || pending}
             className="flex w-full items-center justify-center rounded-xl bg-brand-teal px-4 py-3 text-base font-medium text-brand-on-teal shadow-card transition hover:bg-brand-teal-dark active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending ? "Booking…" : "Book this time"}
+            {pending ? (moving ? "Moving…" : "Booking…") : moving ? "Move to this time" : "Book this time"}
           </button>
         </div>
       )}

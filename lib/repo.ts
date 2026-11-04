@@ -189,6 +189,52 @@ export async function claimSlot(
   return data as ClaimResult;
 }
 
+export type MoveResult = "ok" | "taken" | "not_booked";
+
+// A candidate moving their booking. The database function does it in one step
+// (the same lock and overlap check as claimSlot), so they keep their current
+// time unless the new one is free. Clears the room, Outlook entry and reminders.
+export async function moveSlot(
+  bookingId: string,
+  fromStart: string,
+  fields: { slotStart: string; slotEnd: string; candidateTimezone: string },
+): Promise<MoveResult> {
+  if (demoMode()) {
+    const invite = demoInviteById(bookingId);
+    if (!invite || invite.status !== "booked" || invite.slotStart !== fromStart) return "not_booked";
+    const clash = demoInvites().some(
+      (i) =>
+        i.bookingId !== bookingId &&
+        i.recruiter.id === invite.recruiter.id &&
+        (i.status === "booked" || i.status === "in_progress") &&
+        i.slotStart! < fields.slotEnd &&
+        i.slotEnd! > fields.slotStart,
+    );
+    if (clash) return "taken";
+    Object.assign(invite, {
+      slotStart: fields.slotStart,
+      slotEnd: fields.slotEnd,
+      candidateTimezone: fields.candidateTimezone,
+      bookedAt: new Date().toISOString(),
+      dailyRoomName: null,
+      dailyRoomUrl: null,
+      graphEventId: null,
+      reminder24hSentAt: null,
+      reminder2hSentAt: null,
+    });
+    return "ok";
+  }
+  const { data, error } = await supabaseAdmin().rpc("cos_recruitment_move_slot", {
+    p_booking_id: bookingId,
+    p_from_start: fromStart,
+    p_slot_start: fields.slotStart,
+    p_slot_end: fields.slotEnd,
+    p_candidate_timezone: fields.candidateTimezone,
+  });
+  if (error) throw new Error(`Moving the booking failed: ${error.message}`);
+  return data as MoveResult;
+}
+
 export async function saveRoom(bookingId: string, room: { name: string; url: string }): Promise<void> {
   if (demoMode()) return updateDemoInvite(bookingId, { dailyRoomName: room.name, dailyRoomUrl: room.url });
   const { error } = await supabaseAdmin()

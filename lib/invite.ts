@@ -14,6 +14,9 @@ export const RECRUITER_PHOTO_BUCKET = "recruitment-public";
 // The room opens this long before the start, and stays joinable this long after the end.
 export const JOIN_OPENS_MINS = 15;
 export const JOIN_CLOSES_MINS = 60;
+// Candidates can move their own booking until this long before the start. After
+// that it's too late to change without the recruiter knowing in time.
+export const CHANGE_CUTOFF_HOURS = 2;
 
 export async function loadInvite(slug: string, token: string): Promise<InviteRecord | null> {
   if (isDemoInvite(slug, token)) return demoInviteById(DEMO_BOOKING_ID);
@@ -25,6 +28,11 @@ export async function loadInvite(slug: string, token: string): Promise<InviteRec
 
 export function inviteExpired(invite: InviteRecord, now = DateTime.utc()): boolean {
   return Boolean(invite.inviteExpiresAt && DateTime.fromISO(invite.inviteExpiresAt) < now);
+}
+
+export function canChangeTime(invite: InviteRecord, now = DateTime.utc()): boolean {
+  if (invite.status !== "booked" || invite.interview.status !== "open" || !invite.slotStart) return false;
+  return DateTime.fromISO(invite.slotStart) > now.plus({ hours: CHANGE_CUTOFF_HOURS });
 }
 
 export function joinWindow(invite: InviteRecord): { opens: DateTime; closes: DateTime } | null {
