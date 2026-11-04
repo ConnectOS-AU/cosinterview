@@ -8,6 +8,7 @@ import { isClientStage, STAGES, stageLabel, type Stage } from "@/lib/stages";
 import type { BookingStatus } from "@/lib/types";
 import { createInvitations, type SentInvite } from "../actions";
 import { CopyButton } from "../copy-button";
+import { CandidateStanding, type Standing } from "./candidate-standing";
 
 type Candidate = {
   candidateId: string;
@@ -18,6 +19,7 @@ type Candidate = {
   unsubscribed: boolean;
   // Their COSInterview interviews for this job, at each stage.
   interviews: { stage: Stage; status: BookingStatus }[];
+  standing: Standing;
 };
 
 export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string; candidates: Candidate[]; canEmail: boolean }) {
@@ -169,6 +171,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
                   </td>
                   <td className="px-4 py-3">
                     <span className={can ? "font-medium text-neutral-900" : "font-medium"}>{c.name}</span>
+                    <CandidateStanding standing={c.standing} />
                     {label && <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{label}</span>}
                     {!c.email && <span className="ml-2 text-xs">No email in JobAdder</span>}
                     {c.unsubscribed && c.email && <span className="ml-2 text-xs text-amber-700">Unsubscribed from marketing</span>}

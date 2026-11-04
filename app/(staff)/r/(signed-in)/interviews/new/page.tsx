@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
+import { listReviewSummaries } from "@/lib/candidate-review";
 import { mailConfigured } from "@/lib/mail";
 import { requireRecruiter } from "@/lib/staff/auth";
 import { jobsWithRecruiter } from "@/lib/staff/job-detail";
@@ -10,6 +11,7 @@ import { STATUS_BADGE } from "@/lib/staff/status";
 import { nextStage, stageLabel, STAGES } from "@/lib/stages";
 import type { JobAdderApplication, JobAdderJob } from "@/lib/types";
 import { CandidatePicker } from "./candidate-picker";
+import type { Standing } from "./candidate-standing";
 import { ClientSelect } from "./client-select";
 import { ProgressBoard, type BoardCandidate, type BoardJob } from "./progress-board";
 
@@ -58,18 +60,23 @@ async function ChooseJob({ q, client }: { q: string; client: string }) {
   for (const id of recruiting) roles.set(id, "Recruiter");
   const own = jobs.filter((j) => roles.has(j.jobId));
   const others = jobs.filter((j) => !roles.has(j.jobId));
-  const board: BoardJob[] = await Promise.all(
+  const loaded = await Promise.all(
     own.map(async (job) => {
       const [applications, stages] = await Promise.all([listApplications(job.jobId), stagesForJob(job.jobId)]);
-      return {
-        jobId: job.jobId,
-        title: job.title,
-        companyName: job.companyName,
-        role: roles.get(job.jobId)!,
-        candidates: applications.flatMap((a) => awaitingNextStep(a, stages.get(a.candidateId) ?? [])),
-      };
+      return { job, applications, stages };
     }),
   );
+  const reviews = await reviewsFor(loaded.map((l) => l.stages));
+  const board: BoardJob[] = loaded.map(({ job, applications, stages }) => ({
+    jobId: job.jobId,
+    title: job.title,
+    companyName: job.companyName,
+    role: roles.get(job.jobId)!,
+    candidates: applications.flatMap((a) => {
+      const interviews = stages.get(a.candidateId) ?? [];
+      return awaitingNextStep(a, interviews, standingOf(interviews, reviews, recruiter.id));
+    }),
+  }));
 
   return (
     <>
@@ -106,7 +113,7 @@ async function ChooseJob({ q, client }: { q: string; client: string }) {
 }
 
 // Someone with no interview open on this job, and a stage still ahead of them.
-function awaitingNextStep(application: JobAdderApplication, interviews: CandidateStage[]): BoardCandidate[] {
+function awaitingNextStep(application: JobAdderApplication, interviews: CandidateStage[], standing: Standing): BoardCandidate[] {
   const next = nextStage(interviews);
   if (!next || interviews.some((i) => i.status === "invited" || i.status === "booked" || i.status === "in_progress")) return [];
   const latest = interviews.reduce<CandidateStage | null>((a, b) => (!a || stageOrder(b) > stageOrder(a) ? b : a), null);
@@ -119,8 +126,29 @@ function awaitingNextStep(application: JobAdderApplication, interviews: Candidat
       unsubscribed: application.unsubscribed,
       last: latest && `${stageLabel(latest.stage)} ${STATUS_BADGE[latest.status].label.toLowerCase()}`,
       next,
+      standing,
     },
   ];
+}
+
+type Reviews = Awaited<ReturnType<typeof listReviewSummaries>>;
+
+function reviewsFor(jobs: Map<string, CandidateStage[]>[]): Promise<Reviews> {
+  return listReviewSummaries(jobs.flatMap((stages) => [...stages.values()].flat().map((i) => i.bookingId)));
+}
+
+// Their furthest interview with a score, and the furthest one this recruiter can
+// open: the overview page is only for the interview's own recruiter.
+function standingOf(interviews: CandidateStage[], reviews: Reviews, recruiterId: string): Standing {
+  const latestFirst = [...interviews].sort((a, b) => stageOrder(b) - stageOrder(a));
+  const scores = latestFirst.map((i) => {
+    const review = reviews.get(i.bookingId);
+    return review?.afterInterview ?? review?.likelihood ?? null;
+  });
+  return {
+    score: scores.find((s) => s !== null) ?? null,
+    overviewId: latestFirst.find((i) => i.recruiterId === recruiterId)?.bookingId ?? null,
+  };
 }
 
 const stageOrder = (entry: CandidateStage) => STAGES.findIndex((s) => s.key === entry.stage);
@@ -158,10 +186,11 @@ function JobList({ title, jobs, empty }: { title: string; jobs: JobAdderJob[]; e
 }
 
 async function ChooseCandidates({ jobId }: { jobId: string }) {
-  await requireRecruiter();
+  const { recruiter } = await requireRecruiter();
   const job = await getJob(jobId);
   if (!job) notFound();
   const [applications, stages] = await Promise.all([listApplications(job.jobId), stagesForJob(job.jobId)]);
+  const reviews = await reviewsFor([stages]);
 
   return (
     <>
@@ -182,6 +211,7 @@ async function ChooseCandidates({ jobId }: { jobId: string }) {
           stage: [a.statusName, a.stage].filter(Boolean).join(" · ") || null,
           unsubscribed: a.unsubscribed,
           interviews: stages.get(a.candidateId) ?? [],
+          standing: standingOf(stages.get(a.candidateId) ?? [], reviews, recruiter.id),
         }))}
       />
     </>

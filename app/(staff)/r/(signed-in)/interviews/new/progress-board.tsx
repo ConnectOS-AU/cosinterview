@@ -6,6 +6,7 @@ import { DEFAULT_INTERVIEW_LENGTH, INTERVIEW_LENGTHS } from "@/lib/staff/options
 import { isClientStage, STAGES, stageLabel, type Stage } from "@/lib/stages";
 import { progressCandidates, type SentInvite } from "../actions";
 import { Results } from "./candidate-picker";
+import { CandidateStanding, type Standing } from "./candidate-standing";
 
 export type BoardCandidate = {
   candidateId: string;
@@ -17,6 +18,7 @@ export type BoardCandidate = {
   // Their latest interview on this job, e.g. "Interview 1 completed".
   last: string | null;
   next: Stage;
+  standing: Standing;
 };
 
 export type BoardJob = {
@@ -129,6 +131,7 @@ export function ProgressBoard({ jobs, canEmail, emptyText }: { jobs: BoardJob[];
                         />
                         <span className="min-w-0 flex-1 text-sm">
                           <span className={can ? "font-medium text-neutral-900" : "font-medium"}>{c.name}</span>
+                          <CandidateStanding standing={c.standing} />
                           {!can && <span className="ml-2 text-xs">No email in JobAdder</span>}
                           {can && c.unsubscribed && <span className="ml-2 text-xs text-amber-700">Unsubscribed from marketing</span>}
                           <span className="block text-xs text-neutral-500">{[c.last ?? "No interviews yet", c.jobAdderStage].filter(Boolean).join(" · ")}</span>
