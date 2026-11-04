@@ -14,9 +14,9 @@ import { runDebrief } from "@/lib/candidate-debrief";
 import { MAX_LINKEDIN_PDF_BYTES, removeLinkedinPdf, saveLinkedinPdf, type LinkedinPdf } from "@/lib/linkedin-pdf";
 import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { arrivalText, candidateArrivals } from "@/lib/punctuality";
-import { createOwnerToken } from "@/lib/daily";
+import { createOwnerToken, openRoomNow } from "@/lib/daily";
 import { demoMode } from "@/lib/demo";
-import { siteUrl } from "@/lib/invite";
+import { joinWindow, siteUrl } from "@/lib/invite";
 import { addCandidateNote, jobAdderWriteConfigured, logToJobAdder } from "@/lib/staff/jobadder-api";
 import { getInterviewRecord, markSummaryWritten } from "@/lib/staff/transcripts";
 import { findInviteById } from "@/lib/repo";
@@ -52,6 +52,8 @@ export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
     }
     const room = await roomForBooking(invite);
     if (!room) return { ok: true, roomUrl: null, token: null };
+    const opens = joinWindow(invite)?.opens;
+    if (opens && opens.toMillis() > Date.now()) await openRoomNow(room.name);
     // An admin working as this recruiter joins under their own name, still on the
     // recruiter side so the transcript labels them as the interviewer.
     const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
