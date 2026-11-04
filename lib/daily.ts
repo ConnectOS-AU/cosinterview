@@ -52,8 +52,9 @@ export async function ensureInterviewRoom(
 }
 
 // For a recruiter joining before the usual opening time. Daily turns everyone
-// away until the room opens, owners included. Candidates and attendees still
-// wait for their own time: the app holds them on its "you're early" screen.
+// away until the room opens, owners included. Attendees still wait for their own
+// time, and the candidate until the recruiter chooses to start: the app holds them
+// on its "you're early" screen.
 export async function openRoomNow(name: string): Promise<void> {
   const nbf = Math.floor(Date.now() / 1000) - 60;
   const res = await daily<{ error?: string }>("POST", `/rooms/${encodeURIComponent(name)}`, { properties: { nbf } });
@@ -62,19 +63,41 @@ export async function openRoomNow(name: string): Promise<void> {
 
 // Meeting token for the recruiter: owner, so they skip the lobby, can admit the
 // candidate and can start recording. user_id tags their audio track as the
-// recruiter's for the transcription worker.
+// recruiter's for the transcription worker. Starting early marks it, so the choice
+// lasts only while the recruiter is in the room. The marker goes at the front
+// because Daily cuts user_id to 36 characters.
+const RECRUITER = "recruiter:";
+const STARTED_EARLY = `${RECRUITER}early:`;
+
 export async function createOwnerToken(
   roomName: string,
-  owner: { name: string; recruiterId: string },
+  owner: { name: string; recruiterId: string; startEarly: boolean },
 ): Promise<string> {
   const res = await daily<{ token?: string }>("POST", "/meeting-tokens", {
     properties: {
       room_name: roomName,
       is_owner: true,
       user_name: owner.name,
-      user_id: `recruiter:${owner.recruiterId}`,
+      user_id: `${owner.startEarly ? STARTED_EARLY : RECRUITER}${owner.recruiterId}`,
       exp: Math.floor(Date.now() / 1000) + 4 * 60 * 60,
     },
+  });
+  if (res.status !== 200 || !res.json.token) throw new Error(`Daily token create failed: ${res.status}`);
+  return res.json.token;
+}
+
+// Whether the recruiter is in the room now, having chosen to start early.
+export async function recruiterStartedEarly(roomName: string): Promise<boolean> {
+  const res = await daily<{ data?: { userId?: string | null }[] }>("GET", `/rooms/${encodeURIComponent(roomName)}/presence`);
+  if (res.status !== 200) throw new Error(`Daily presence failed: ${res.status}`);
+  return (res.json.data ?? []).some((p) => p.userId?.startsWith(STARTED_EARLY));
+}
+
+// Takes the candidate straight past the lobby, for when the recruiter has started
+// early. Not an owner, so they get no host controls.
+export async function createCandidateToken(roomName: string, name: string): Promise<string> {
+  const res = await daily<{ token?: string }>("POST", "/meeting-tokens", {
+    properties: { room_name: roomName, user_name: name, exp: Math.floor(Date.now() / 1000) + 4 * 60 * 60 },
   });
   if (res.status !== 200 || !res.json.token) throw new Error(`Daily token create failed: ${res.status}`);
   return res.json.token;

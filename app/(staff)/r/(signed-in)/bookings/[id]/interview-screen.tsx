@@ -4,6 +4,7 @@ import type { DailyCall } from "@daily-co/daily-js";
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { InterviewNote } from "@/lib/staff/repo";
+import { formatTime } from "@/lib/format";
 import { noteLine, parseCallName } from "@/lib/stages";
 import { InterviewTimer } from "./interview-timer";
 import { finishInterview, joinAsRecruiter, loadNotes, noteAttendee, recordingStarted, removeNote, saveNote } from "./actions";
@@ -36,6 +37,8 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<Waiting[]>([]);
+  const [askEarly, setAskEarly] = useState(false);
+  const startEarlyRef = useRef(false);
   const [recording, setRecordingState] = useState<RecordingState>("off");
   const recordingRef = useRef<RecordingState>("off");
   const setRecording = (state: RecordingState) => {
@@ -58,10 +61,19 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
     setCameraBlocked(window.self !== window.top && policy?.allowsFeature("camera") === false);
   }, []);
 
-  async function join() {
+  // Before the booked time the recruiter says whether this starts the interview,
+  // or they're only joining early to get ready.
+  function pressJoin() {
+    if (slot && Date.now() < new Date(slot.start).getTime()) setAskEarly(true);
+    else void join(false);
+  }
+
+  async function join(startEarly: boolean) {
+    setAskEarly(false);
+    startEarlyRef.current = startEarly;
     setPhase("joining");
     setError(null);
-    const result = await joinAsRecruiter(bookingId);
+    const result = await joinAsRecruiter(bookingId, startEarly);
     if (!result.ok) {
       setError(result.error);
       setPhase("error");
@@ -190,7 +202,7 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
           <div ref={frameRef} className={showFrame ? "absolute inset-0 z-10" : "hidden"} />
           {!inCall && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-              {phase === "idle" && (
+              {phase === "idle" && !askEarly && (
                 <>
                   <p className="text-sm text-neutral-300">
                     {canJoin
@@ -200,12 +212,43 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
                   {canJoin && (
                     <button
                       type="button"
-                      onClick={join}
+                      onClick={pressJoin}
                       className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
                     >
                       Join interview
                     </button>
                   )}
+                </>
+              )}
+              {phase === "idle" && askEarly && slot && (
+                <>
+                  <p className="text-base font-semibold text-white">Start the interview early?</p>
+                  <p className="max-w-md text-sm text-neutral-300">
+                    It&apos;s booked for {formatTime(slot.start, slot.zone)}. If you start now, {candidateName} comes straight in once they&apos;re on the interview page.
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void join(true)}
+                      className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+                    >
+                      Start now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void join(false)}
+                      className="rounded-md border border-neutral-500 px-4 py-2 text-sm font-medium text-neutral-100 hover:bg-neutral-800"
+                    >
+                      Join and keep them waiting
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAskEarly(false)}
+                      className="rounded-md px-4 py-2 text-sm font-medium text-neutral-300 hover:text-white"
+                    >
+                      Not yet
+                    </button>
+                  </div>
                 </>
               )}
               {phase === "joining" && <p className="text-sm text-neutral-300">Connecting…</p>}
@@ -221,7 +264,7 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
                   <p className="text-sm text-red-300">{error}</p>
                   <button
                     type="button"
-                    onClick={join}
+                    onClick={() => void join(startEarlyRef.current)}
                     className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
                   >
                     Try again

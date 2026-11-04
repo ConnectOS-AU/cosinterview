@@ -2,6 +2,7 @@
 
 import type { DailyCall } from "@daily-co/daily-js";
 import { useEffect, useRef, useState } from "react";
+import type { AdmissionState } from "@/lib/daily-lobby";
 import type { WaitingRoomContent } from "@/content/waiting-room";
 import { followAdmission } from "@/lib/daily-lobby";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
@@ -9,7 +10,7 @@ import type { PublicRecruiter } from "@/lib/types";
 import { BrandLogo } from "@/app/brand-logo";
 import { InterviewTipsPanel, LobbyPanel, LobbyTips } from "../../../../lobby-panel";
 import { RecruiterAvatar } from "../../../portal-shell";
-import { getRoomAccess } from "../actions";
+import { getRoomAccess, type RoomAccess } from "../actions";
 
 type Phase =
   | "checking"
@@ -39,7 +40,9 @@ type Props = {
 // The candidate's side of the interview. They join the Daily room without a
 // meeting token, so Daily holds them in the lobby. Daily's own screen (camera
 // and microphone, Request to join) shows above the ConnectOS waiting content
-// until the recruiter lets them in, then the video fills the page.
+// until the recruiter lets them in, then the video fills the page. The app can't
+// admit anyone inside Daily's frame, so if the recruiter chooses to start early the
+// page joins again with the token it's given, which skips the lobby.
 export function InterviewRoom(props: Props) {
   const { recruiterSlug, token, recruiter, candidateFirstName, startsAt, opensAt, zone, lobby, jobHref } = props;
   const frameRef = useRef<HTMLDivElement>(null);
@@ -49,6 +52,47 @@ export function InterviewRoom(props: Props) {
     let cancelled = false;
     let call: DailyCall | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let watch: ReturnType<typeof setInterval> | undefined;
+    let admission: AdmissionState | null = null;
+    let rejoining = false;
+
+    async function enter(access: Extract<RoomAccess, { ok: true }>) {
+      setPhase("connecting");
+      const Daily = (await import("@daily-co/daily-js")).default;
+      if (cancelled || !frameRef.current) return;
+      await Daily.getCallInstance()?.destroy();
+      call = Daily.createFrame(frameRef.current, {
+        iframeStyle: { width: "100%", height: "100%", border: "0" },
+        showLeaveButton: true,
+        showFullscreenButton: true,
+      });
+      call.on("left-meeting", () => {
+        if (!rejoining) setPhase((p) => (p === "denied" ? p : "left"));
+      });
+      followAdmission(call, (state) => {
+        admission = state;
+        setPhase(state);
+      });
+
+      await call.join({
+        url: access.roomUrl!,
+        ...(access.token ? { token: access.token } : {}),
+        userName: access.candidateName,
+        userData: { role: "candidate", bookingId: access.bookingId },
+      });
+    }
+
+    // In the lobby: come straight in if the recruiter chooses to start early.
+    async function checkForEarlyStart() {
+      if (admission !== "lobby") return;
+      const access = await getRoomAccess(recruiterSlug, token);
+      if (cancelled || admission !== "lobby" || !access.ok || !access.token) return;
+      clearInterval(watch);
+      rejoining = true;
+      await call?.destroy();
+      rejoining = false;
+      await enter(access);
+    }
 
     async function start() {
       const access = await getRoomAccess(recruiterSlug, token);
@@ -56,8 +100,8 @@ export function InterviewRoom(props: Props) {
       if (!access.ok) {
         if (access.reason === "too_early") {
           setPhase("too_early");
-          // Try again when the room opens (checking at least once a minute).
-          const wait = Math.min(Math.max(new Date(opensAt).getTime() - Date.now(), 5_000), 60_000);
+          // Keep checking: the recruiter may choose to start early.
+          const wait = Math.min(Math.max(new Date(opensAt).getTime() - Date.now(), 5_000), 10_000);
           retry = setTimeout(start, wait);
         } else {
           setPhase(access.reason === "closed" ? "closed" : "error");
@@ -69,32 +113,20 @@ export function InterviewRoom(props: Props) {
         return;
       }
 
-      setPhase("connecting");
-      const Daily = (await import("@daily-co/daily-js")).default;
-      if (cancelled || !frameRef.current) return;
-      await Daily.getCallInstance()?.destroy();
-      call = Daily.createFrame(frameRef.current, {
-        iframeStyle: { width: "100%", height: "100%", border: "0" },
-        showLeaveButton: true,
-        showFullscreenButton: true,
-      });
-      call.on("left-meeting", () => setPhase((p) => (p === "denied" ? p : "left")));
-      followAdmission(call, setPhase);
-
-      await call.join({
-        url: access.roomUrl,
-        userName: access.candidateName,
-        userData: { role: "candidate", bookingId: access.bookingId },
-      });
+      watch = setInterval(() => void checkForEarlyStart().catch(fail), 10_000);
+      await enter(access);
     }
 
-    start().catch((err) => {
+    function fail(err: unknown) {
       console.error(err);
       if (!cancelled) setPhase("error");
-    });
+    }
+
+    start().catch(fail);
     return () => {
       cancelled = true;
       clearTimeout(retry);
+      clearInterval(watch);
       void call?.destroy();
     };
   }, [recruiterSlug, token, opensAt]);
@@ -175,7 +207,7 @@ function StatusCard({
     checking: { title: "Getting your room ready", body: "Just a moment…", waiting: true },
     too_early: {
       title: `Hi ${candidateFirstName}, you're early`,
-      body: `Your interview is on ${when}. The room opens at ${formatTime(opensAt, zone)} and this page will let you in automatically.`,
+      body: `Your interview is on ${when}. The room opens at ${formatTime(opensAt, zone)} and this page will let you in automatically, or sooner if ${recruiter.firstName} starts early.`,
       waiting: true,
     },
     connecting: {
