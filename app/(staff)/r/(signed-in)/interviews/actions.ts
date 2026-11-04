@@ -14,10 +14,10 @@ import { requireRecruiter } from "@/lib/staff/auth";
 import { INTERVIEW_LENGTHS } from "@/lib/staff/options";
 import { getJob, listApplications } from "@/lib/staff/jobadder";
 import { logToJobAdder } from "@/lib/staff/jobadder-api";
-import { createInvites, openInterviewFor, replaceInviteToken, stagesForJob } from "@/lib/staff/repo";
+import { createInvites, openInterviewFor, replaceInviteToken, stagesForJob, type CandidateStage } from "@/lib/staff/repo";
 import { isStage, stageLabel, type Stage } from "@/lib/stages";
 import { newInviteToken } from "@/lib/tokens";
-import type { InviteRecord, NewInvite, RecruiterProfile } from "@/lib/types";
+import type { BookingStatus, InviteRecord, NewInvite, RecruiterProfile } from "@/lib/types";
 
 const INVITE_DAYS = 14;
 const MAX_PER_BATCH = 50;
@@ -74,7 +74,8 @@ function inviteContent(
 }
 
 // Creates (or reuses) the open interview for this job and invites the chosen
-// candidates. Emails go out through SendGrid in the recruiter's name when it's
+// candidates, closing any interview they still have open on the job, so only the
+// newest link works. Emails go out through SendGrid in the recruiter's name when it's
 // set up; either way the links are returned so they can be copied.
 export async function createInvitations(input: {
   jobId: string;
@@ -139,12 +140,14 @@ export async function createInvitations(input: {
       skipped.push(invite.name);
       continue;
     }
+    const closed = await closeOpenInterviews(stages.get(invite.candidateId) ?? []);
     const link = linkFor(recruiter, tokens.get(invite.candidateId)!);
     const email = canEmail
       ? await sendToCandidate(recruiter, invite, inviteContent(recruiter, invite, { jobTitle: job.title, durationMins: input.durationMins, link, expiresAt, message }))
       : null;
     const failed = canEmail && !email;
-    sent.push({ name: invite.name, email: invite.email, link, emailed: Boolean(email), error: failed ? EMAIL_FAILED : undefined });
+    const problem = [failed && EMAIL_FAILED, !closed && "Their earlier interview couldn't be closed - cancel it from the interview list."].filter(Boolean).join(" ");
+    sent.push({ name: invite.name, email: invite.email, link, emailed: Boolean(email), error: problem || undefined });
     notes.push({
       candidateId: invite.candidateId,
       text: note(
@@ -311,16 +314,39 @@ export async function rescheduleBooking(bookingId: string, sendEmail: boolean): 
   return { ok: true, link, emailed: Boolean(email), error: canEmail && !email ? EMAIL_FAILED : undefined };
 }
 
+const isOpen = (status: BookingStatus) => status === "invited" || status === "booked";
+
 export async function cancelBooking(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const { invite } = await ownBooking(bookingId);
-  if (invite.status !== "invited" && invite.status !== "booked") {
-    return { ok: false, error: "This interview can't be cancelled now." };
+  if (!isOpen(invite.status)) return { ok: false, error: "This interview can't be cancelled now." };
+  await closeInterview(invite);
+  revalidatePath("/r");
+  return { ok: true };
+}
+
+// Closes a candidate's interviews that haven't happened yet. One that fails is
+// logged and reported, and doesn't stop the new invite. False if any failed.
+async function closeOpenInterviews(interviews: CandidateStage[]): Promise<boolean> {
+  let closedAll = true;
+  for (const { bookingId, status } of interviews) {
+    if (!isOpen(status)) continue;
+    try {
+      const invite = await findInviteById(bookingId);
+      if (invite && isOpen(invite.status)) await closeInterview(invite);
+    } catch (err) {
+      console.error("[invite] Closing an earlier interview failed", bookingId, err);
+      closedAll = false;
+    }
   }
+  return closedAll;
+}
+
+async function closeInterview(invite: InviteRecord): Promise<void> {
   // Read before releasing: releasing clears the booked time.
   const candidateWhen = bookedWhen(invite, invite.candidateTimezone ?? invite.recruiter.timezone);
   const was = bookedWhen(invite, invite.recruiter.timezone);
   await removeOutlookEntry(invite);
-  await releaseBooking(bookingId, { status: "cancelled" });
+  await releaseBooking(invite.bookingId, { status: "cancelled" });
 
   // A booked candidate is told; someone who hadn't booked just finds the link no longer works.
   const email =
@@ -346,6 +372,4 @@ export async function cancelBooking(bookingId: string): Promise<{ ok: true } | {
   after(() =>
     logToJobAdder(invite.jobadderCandidateId, note(`Interview${was ? ` on ${was}` : " invite"} cancelled via COSInterview.`, email, message)),
   );
-  revalidatePath("/r");
-  return { ok: true };
 }

@@ -43,6 +43,8 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   };
   const selectable = (c: Candidate) => Boolean(stage) && Boolean(c.email) && !invitedLabel(c);
   const hiddenCount = candidates.filter(doneHere).length;
+  // Sending these closes their other open interviews on this job.
+  const closing = candidates.filter((c) => selected.has(c.candidateId) && c.interviews.some((i) => i.stage !== stage && (i.status === "invited" || i.status === "booked")));
   const visible = useMemo(() => {
     const term = filter.trim().toLowerCase();
     const remaining = stage ? candidates.filter((c) => c.interviews.find((i) => i.stage === stage)?.status !== "completed") : candidates;
@@ -217,6 +219,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
         </label>
         <div className="flex items-center gap-3">
           {error && <span className="text-sm text-red-600">{error}</span>}
+          {closing.length > 0 && <span className="text-sm text-amber-700">This cancels the open interview for {closing.map((c) => c.name).join(", ")}.</span>}
           <button
             type="button"
             onClick={submit}
