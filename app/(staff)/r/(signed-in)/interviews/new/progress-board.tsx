@@ -18,6 +18,8 @@ export type BoardCandidate = {
   // Their latest interview on this job, e.g. "Interview 1 completed".
   last: string | null;
   next: Stage;
+  // Interviews they've finished on this job: they can't be invited to these again.
+  completed: Stage[];
   standing: Standing;
 };
 
@@ -43,6 +45,10 @@ export function ProgressBoard({ jobs, canEmail, emptyText }: { jobs: BoardJob[];
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ sent: SentInvite[]; skipped: string[]; failed: string[] } | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const ticked = jobs.flatMap((job) => job.candidates.filter((c) => selected.has(pickKey(job.jobId, c.candidateId))));
+  const completedBy = (s: Stage) => ticked.filter((c) => c.completed.includes(s)).map((c) => c.name);
+  const alreadyDone = stage ? completedBy(stage) : [];
 
   function toggle(keys: string[], on: boolean) {
     setSelected((prev) => {
@@ -161,8 +167,9 @@ export function ProgressBoard({ jobs, canEmail, emptyText }: { jobs: BoardJob[];
               >
                 <option value="">Each candidate&apos;s next stage</option>
                 {STAGES.map((s) => (
-                  <option key={s.key} value={s.key}>
+                  <option key={s.key} value={s.key} disabled={completedBy(s.key).length > 0}>
                     {s.label}
+                    {completedBy(s.key).length > 0 ? " (already completed)" : ""}
                   </option>
                 ))}
               </select>
@@ -207,11 +214,16 @@ export function ProgressBoard({ jobs, canEmail, emptyText }: { jobs: BoardJob[];
             <div className="flex items-center gap-3">
               {tooMany && <span className="text-sm text-red-600">Choose up to {MAX_AT_ONCE} at a time.</span>}
               {error && <span className="text-sm text-red-600">{error}</span>}
+              {stage && alreadyDone.length > 0 && (
+                <span className="text-sm text-red-600">
+                  {alreadyDone.join(", ")} already completed {stageLabel(stage)}.
+                </span>
+              )}
               {stage && isClientStage(stage) && <span className="text-xs text-neutral-500">Client attendees are added from the interview page.</span>}
               <button
                 type="button"
                 onClick={submit}
-                disabled={pending || tooMany}
+                disabled={pending || tooMany || alreadyDone.length > 0}
                 className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {pending ? "Progressing…" : `Progress ${count} candidate${count === 1 ? "" : "s"}`}

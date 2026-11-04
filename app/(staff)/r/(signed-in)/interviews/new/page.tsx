@@ -126,6 +126,7 @@ function awaitingNextStep(application: JobAdderApplication, interviews: Candidat
       unsubscribed: application.unsubscribed,
       last: latest && `${stageLabel(latest.stage)} ${STATUS_BADGE[latest.status].label.toLowerCase()}`,
       next,
+      completed: interviews.filter((i) => i.status === "completed").map((i) => i.stage),
       standing,
     },
   ];
