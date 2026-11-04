@@ -51,6 +51,15 @@ export async function ensureInterviewRoom(
   throw new Error(`Daily room create failed: ${created.status} ${JSON.stringify(created.json)}`);
 }
 
+// For a recruiter joining before the usual opening time. Daily turns everyone
+// away until the room opens, owners included. Candidates and attendees still
+// wait for their own time: the app holds them on its "you're early" screen.
+export async function openRoomNow(name: string): Promise<void> {
+  const nbf = Math.floor(Date.now() / 1000) - 60;
+  const res = await daily<{ error?: string }>("POST", `/rooms/${encodeURIComponent(name)}`, { properties: { nbf } });
+  if (res.status !== 200) throw new Error(`Daily room open failed: ${res.status}`);
+}
+
 // Meeting token for the recruiter: owner, so they skip the lobby, can admit the
 // candidate and can start recording. user_id tags their audio track as the
 // recruiter's for the transcription worker.
