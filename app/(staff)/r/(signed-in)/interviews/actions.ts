@@ -3,7 +3,7 @@
 import { DateTime } from "luxon";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
-import { cancellationEmail, candidateVars, type EmailContent, formatSlot, inviteEmail, messageText, onWhen } from "@/lib/emails";
+import { cancellationEmail, interviewChangedEmail, candidateVars, type EmailContent, formatSlot, inviteEmail, messageText, onWhen } from "@/lib/emails";
 import { processDueReviews } from "@/lib/candidate-review";
 import { deleteInterviewEvent, graphConfigured } from "@/lib/graph";
 import { siteUrl } from "@/lib/invite";
@@ -100,9 +100,11 @@ export async function createInvitations(input: {
   if (!job) return { ok: false, error: "That JobAdder job wasn't found." };
 
   // Only candidates who really applied to this job, have an email, and haven't
-  // already been invited to (or done) this stage.
+  // already been invited to (or done) this stage. Missing it gets a second chance.
   const [applications, stages] = await Promise.all([listApplications(job.jobId), stagesForJob(job.jobId)]);
-  const atStage = (id: string) => (stages.get(id) ?? []).some((s) => s.stage === input.stage);
+  const hereWith = (id: string, match: (status: BookingStatus) => boolean) => (stages.get(id) ?? []).some((s) => s.stage === input.stage && match(s.status));
+  const atStage = (id: string) => hereWith(id, (status) => status !== "no_show");
+  const missedIt = (id: string) => hereWith(id, (status) => status === "no_show");
   const byCandidate = new Map(applications.map((a) => [a.candidateId, a]));
   const skipped: string[] = [];
   const expiresAt = DateTime.utc().plus({ days: INVITE_DAYS }).endOf("day").toISO()!;
@@ -128,8 +130,19 @@ export async function createInvitations(input: {
   }
   if (invites.length === 0) return { ok: true, sent: [], skipped };
 
-  const interview = await openInterviewFor(recruiter, job, input.durationMins, staff.userId, input.stage);
-  const created = await createInvites(recruiter, interview, invites);
+  // A second chance is a new booking, in its own round, so the no-show stays on
+  // record for their punctuality.
+  const second = invites.filter((i) => missedIt(i.candidateId));
+  const first = invites.filter((i) => !missedIt(i.candidateId));
+  const created = new Map<string, string>();
+  if (first.length) {
+    const interview = await openInterviewFor(recruiter, job, input.durationMins, staff.userId, input.stage);
+    for (const [id, bookingId] of await createInvites(recruiter, interview, first)) created.set(id, bookingId);
+  }
+  if (second.length) {
+    const interview = await openInterviewFor(recruiter, job, input.durationMins, staff.userId, input.stage, { newRound: true });
+    for (const [id, bookingId] of await createInvites(recruiter, interview, second)) created.set(id, bookingId);
+  }
   const canEmail = input.sendEmail && mailConfigured();
   const message = input.message?.trim().slice(0, MAX_MESSAGE) || null;
 
@@ -319,7 +332,7 @@ const isOpen = (status: BookingStatus) => status === "invited" || status === "bo
 export async function cancelBooking(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const { invite } = await ownBooking(bookingId);
   if (!isOpen(invite.status)) return { ok: false, error: "This interview can't be cancelled now." };
-  await closeInterview(invite);
+  await closeInterview(invite, "cancelled");
   revalidatePath("/r");
   return { ok: true };
 }
@@ -332,7 +345,7 @@ async function closeOpenInterviews(interviews: CandidateStage[]): Promise<boolea
     if (!isOpen(status)) continue;
     try {
       const invite = await findInviteById(bookingId);
-      if (invite && isOpen(invite.status)) await closeInterview(invite);
+      if (invite && isOpen(invite.status)) await closeInterview(invite, "replaced");
     } catch (err) {
       console.error("[invite] Closing an earlier interview failed", bookingId, err);
       closedAll = false;
@@ -341,20 +354,22 @@ async function closeOpenInterviews(interviews: CandidateStage[]): Promise<boolea
   return closedAll;
 }
 
-async function closeInterview(invite: InviteRecord): Promise<void> {
+async function closeInterview(invite: InviteRecord, why: "cancelled" | "replaced"): Promise<void> {
   // Read before releasing: releasing clears the booked time.
   const candidateWhen = bookedWhen(invite, invite.candidateTimezone ?? invite.recruiter.timezone);
   const was = bookedWhen(invite, invite.recruiter.timezone);
   await removeOutlookEntry(invite);
   await releaseBooking(invite.bookingId, { status: "cancelled" });
 
-  // A booked candidate is told; someone who hadn't booked just finds the link no longer works.
+  // A booked candidate is told; someone who hadn't booked just finds the link no
+  // longer works. "Replaced" means a new invite follows, so it isn't a cancellation.
+  const replaced = why === "replaced";
   const email =
     candidateWhen && mailConfigured()
       ? await sendToCandidate(
           invite.recruiter,
           candidateOf(invite),
-          cancellationEmail({
+          (replaced ? interviewChangedEmail : cancellationEmail)({
             candidateName: invite.candidateName,
             recruiterName: invite.recruiter.displayName,
             recruiterTitle: invite.recruiter.title,
@@ -366,10 +381,10 @@ async function closeInterview(invite: InviteRecord): Promise<void> {
   const message = candidateWhen
     ? await messageCandidate(
         numbersOf(invite),
-        await messageText("msgCancellation", { ...varsOf(invite), onWhen: onWhen(candidateWhen) }),
+        await messageText(replaced ? "msgInterviewChanged" : "msgCancellation", { ...varsOf(invite), onWhen: onWhen(candidateWhen) }),
       )
     : null;
   after(() =>
-    logToJobAdder(invite.jobadderCandidateId, note(`Interview${was ? ` on ${was}` : " invite"} cancelled via COSInterview.`, email, message)),
+    logToJobAdder(invite.jobadderCandidateId, note(`Interview${was ? ` on ${was}` : " invite"} ${replaced ? "closed because a new invite was sent" : "cancelled"} via COSInterview.`, email, message)),
   );
 }

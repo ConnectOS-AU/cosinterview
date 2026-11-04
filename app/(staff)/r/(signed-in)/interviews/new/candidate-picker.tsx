@@ -34,8 +34,9 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   const [pending, startTransition] = useTransition();
 
   // At the chosen stage: candidates who've completed it aren't shown, and ones
-  // already invited to it can't be picked again.
-  const atStage = (c: Candidate) => (stage ? c.interviews.find((i) => i.stage === stage) : undefined);
+  // already invited to it can't be picked again. A no-show can be invited again.
+  const atStage = (c: Candidate) => (stage ? c.interviews.find((i) => i.stage === stage && i.status !== "no_show") : undefined);
+  const missedIt = (c: Candidate) => c.interviews.some((i) => i.stage === stage && i.status === "no_show") && !atStage(c);
   const doneHere = (c: Candidate) => atStage(c)?.status === "completed";
   const invitedLabel = (c: Candidate) => {
     const found = atStage(c);
@@ -47,7 +48,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   const closing = candidates.filter((c) => selected.has(c.candidateId) && c.interviews.some((i) => i.stage !== stage && (i.status === "invited" || i.status === "booked")));
   const visible = useMemo(() => {
     const term = filter.trim().toLowerCase();
-    const remaining = stage ? candidates.filter((c) => c.interviews.find((i) => i.stage === stage)?.status !== "completed") : candidates;
+    const remaining = stage ? candidates.filter((c) => !c.interviews.some((i) => i.stage === stage && i.status === "completed")) : candidates;
     return term ? remaining.filter((c) => `${c.name} ${c.email ?? ""} ${c.stage ?? ""}`.toLowerCase().includes(term)) : remaining;
   }, [candidates, filter, stage]);
 
@@ -175,6 +176,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
                     <span className={can ? "font-medium text-neutral-900" : "font-medium"}>{c.name}</span>
                     <CandidateStanding standing={c.standing} />
                     {label && <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{label}</span>}
+                    {missedIt(c) && <span className="ml-2 rounded-full bg-red-50 px-2 py-0.5 text-xs text-red-800">No show last time</span>}
                     {!c.email && <span className="ml-2 text-xs">No email in JobAdder</span>}
                     {c.unsubscribed && c.email && <span className="ml-2 text-xs text-amber-700">Unsubscribed from marketing</span>}
                   </td>
