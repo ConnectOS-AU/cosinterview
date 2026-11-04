@@ -346,14 +346,14 @@ export async function noteAttendee(bookingId: string, displayName: string): Prom
 }
 
 // The candidate overview after the interview: write it again from the
-// transcript (takes a minute or two).
+// transcript and comments (takes a minute or two).
 export async function regenerateDebrief(bookingId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const { invite } = await ownBooking(bookingId);
     if (invite.status !== "completed") return { ok: false, error: "The interview hasn't finished." };
     const result = await runDebrief(invite);
     revalidatePath(`/r/bookings/${bookingId}/overview`);
-    if (result === "skipped") return { ok: false, error: "There's no transcript yet, or the AI isn't set up on this server." };
+    if (result === "skipped") return { ok: false, error: "There's no transcript or comments yet, or the AI isn't set up on this server." };
     if (result === "failed") return { ok: false, error: "It couldn't be written - the details are on the page." };
     return { ok: true };
   } catch (err) {

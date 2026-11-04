@@ -1,8 +1,10 @@
 import "server-only";
-import { getCandidateReview, listReviewSummaries } from "./candidate-review";
+import { getCandidateReview, listReviewSummaries, reviewAgain } from "./candidate-review";
+import { earlierInterviewsText, earlierRounds, upcomingBookingIds } from "./interview-history";
 import { getLinkedinCheck, linkedinCheckText } from "./linkedin-check";
 import { arrivalText, arrivalTrend, candidateArrivals } from "./punctuality";
 import { demoInvites, demoMode } from "./demo";
+import { findInviteById } from "./repo";
 import { SUITABILITY_LABEL } from "./review-labels";
 import { logToJobAdder } from "./staff/jobadder-api";
 import { listNotes } from "./staff/repo";
@@ -14,8 +16,10 @@ import { formatOffset } from "./worker/format";
 import { SUMMARY_MODEL, summaryConfigured } from "./worker/summarise";
 
 // The candidate overview after the interview (lib/worker/debrief.ts): written
-// once the transcript is ready, kept beside the pre-interview overview on the
-// same row, shown on /r/bookings/<id>/overview and added to JobAdder.
+// once the transcript is ready, or from the comments when there's no recording,
+// and again when comments are added later. Kept beside the pre-interview overview
+// on the same row, shown on /r/bookings/<id>/overview and added to JobAdder. Each
+// time, the overview for any later interview is queued to be written again.
 
 export type DebriefState = {
   status: "none" | "running" | "done" | "failed";
@@ -93,12 +97,12 @@ export async function runDebrief(invite: InviteRecord, transcript?: string): Pro
   if (demoMode()) return runDemoDebrief(invite);
   if (!summaryConfigured()) return "skipped";
   try {
-    const text = transcript ?? (await loadTranscript(invite.bookingId));
-    if (!text) return "skipped";
+    const [text, notes] = await Promise.all([transcript ?? loadTranscript(invite.bookingId), listNotes(invite.bookingId)]);
+    if (!text && notes.length === 0) return "skipped";
     await save(invite.bookingId, { debrief_status: "running", debrief_error: null });
-    const [before, notes, linkedin, arrivals] = await Promise.all([
+    const [before, earlier, linkedin, arrivals] = await Promise.all([
       getCandidateReview(invite.bookingId),
-      listNotes(invite.bookingId),
+      earlierRounds(invite),
       getLinkedinCheck(invite.bookingId).catch(() => null),
       candidateArrivals(invite.jobadderCandidateId).catch(() => []),
     ]);
@@ -110,6 +114,7 @@ export async function runDebrief(invite: InviteRecord, transcript?: string): Pro
       candidateName: invite.candidateName,
       stage: stageLabel(invite.interview.stage),
       before: before.status === "done" ? before.review : null,
+      earlierInterviews: earlierInterviewsText(earlier),
       transcript: text,
       notes: [
         ...(arrival ? [arrivalText(arrival, invite.recruiter.timezone)] : []),
@@ -119,6 +124,9 @@ export async function runDebrief(invite: InviteRecord, transcript?: string): Pro
       ],
     });
     await save(invite.bookingId, { debrief, debrief_status: "done", debrief_error: null, debrief_model: SUMMARY_MODEL });
+    await upcomingBookingIds(invite)
+      .then(reviewAgain)
+      .catch((err) => console.error("[debrief] Couldn't queue the next overview", invite.bookingId, err));
     await logToJobAdder(invite.jobadderCandidateId, debriefNoteText(invite, debrief, before.review?.likelihoodPercent ?? null));
     await save(invite.bookingId, { debrief_jobadder_noted_at: new Date().toISOString() }).catch(() => undefined);
     return "done";
@@ -128,6 +136,59 @@ export async function runDebrief(invite: InviteRecord, transcript?: string): Pro
     await save(invite.bookingId, { debrief_status: "failed", debrief_error: message.slice(0, 500) }).catch(() => undefined);
     return "failed";
   }
+}
+
+// Worker: comments the overview hasn't read yet, because the interview had no
+// recording or they were added after it was written. Waits for a recording still
+// being processed, which writes the overview itself. A failure isn't retried here:
+// "Try again" on the page does that, or the next comment.
+const NOTES_LOOKBACK_DAYS = 30;
+const RECORDING_GRACE_HOURS = 6;
+
+export async function processDueDebriefs(limit = 3): Promise<number> {
+  if (demoMode() || !summaryConfigured()) return 0;
+  const db = supabaseAdmin();
+  const notes = await db
+    .from("cos_recruitment_interview_notes")
+    .select("booking_id, updated_at")
+    .gt("updated_at", new Date(Date.now() - NOTES_LOOKBACK_DAYS * 86_400_000).toISOString())
+    .order("updated_at", { ascending: false })
+    .limit(500);
+  if (notes.error) throw new Error(`Due debriefs lookup failed: ${notes.error.message}`);
+  const latestNote = new Map<string, string>();
+  for (const n of notes.data ?? []) if (!latestNote.has(n.booking_id)) latestNote.set(n.booking_id, n.updated_at);
+  const ids = [...latestNote.keys()];
+  if (ids.length === 0) return 0;
+
+  const [bookings, reviews, recordings] = await Promise.all([
+    db.from("cos_recruitment_bookings").select("id").in("id", ids).eq("status", "completed"),
+    db.from("cos_recruitment_candidate_reviews").select("booking_id, debrief_status, debrief_updated_at").in("booking_id", ids),
+    db
+      .from("cos_recruitment_recordings")
+      .select("booking_id")
+      .in("booking_id", ids)
+      .not("status", "in", "(done,failed)")
+      .gt("created_at", new Date(Date.now() - RECORDING_GRACE_HOURS * 3_600_000).toISOString()),
+  ]);
+  const error = bookings.error ?? reviews.error ?? recordings.error;
+  if (error) throw new Error(`Due debriefs lookup failed: ${error.message}`);
+
+  const reviewOf = new Map((reviews.data ?? []).map((r) => [r.booking_id as string, r]));
+  const processing = new Set((recordings.data ?? []).map((r) => r.booking_id as string));
+  const due = (bookings.data ?? [])
+    .map((b) => b.id as string)
+    .filter((id) => {
+      const review = reviewOf.get(id);
+      if (processing.has(id) || review?.debrief_status === "running") return false;
+      return !review?.debrief_updated_at || Date.parse(latestNote.get(id)!) > Date.parse(review.debrief_updated_at);
+    });
+
+  let done = 0;
+  for (const id of due.slice(0, limit)) {
+    const invite = await findInviteById(id);
+    if (invite && (await runDebrief(invite)) === "done") done++;
+  }
+  return done;
 }
 
 // --- Timeline -------------------------------------------------------------------

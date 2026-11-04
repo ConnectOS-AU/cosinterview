@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { getDebrief, likelihoodTimeline, NEXT_STEP_LABEL, OUTCOME_LABEL, type DebriefState, type TimelinePoint } from "@/lib/candidate-debrief";
 import { getLinkedinCheck, LINKEDIN_OUTCOME_LABEL, type LinkedinCheck } from "@/lib/linkedin-check";
 import { getCandidateReview, type ReviewState } from "@/lib/candidate-review";
+import { interviewHistory } from "@/lib/interview-history";
 import { arrivalLabel, arrivalTrend, candidateArrivals, type Arrival, type ArrivalOutcome } from "@/lib/punctuality";
 import { findInviteById } from "@/lib/repo";
 import { requireRecruiter } from "@/lib/staff/auth";
@@ -11,6 +12,7 @@ import { SUITABILITY_LABEL, TOPIC_LABEL } from "@/lib/review-labels";
 import { stageLabel } from "@/lib/stages";
 import type { CandidateDebrief } from "@/lib/worker/debrief";
 import type { CandidateReview } from "@/lib/worker/review";
+import { InterviewHistory } from "./interview-history";
 import { ReviewControls } from "./review-controls";
 
 export const dynamic = "force-dynamic";
@@ -30,10 +32,11 @@ export default async function CandidateOverviewPage({ params }: Props) {
   const { recruiter } = await requireRecruiter();
   const invite = await findInviteById(id);
   if (!invite || invite.recruiter.id !== recruiter.id) notFound();
-  const [state, after, timeline, linkedinCheck, arrivals] = await Promise.all([
+  const [state, after, timeline, history, linkedinCheck, arrivals] = await Promise.all([
     getCandidateReview(invite.bookingId),
     getDebrief(invite.bookingId),
     likelihoodTimeline(invite),
+    interviewHistory(invite),
     getLinkedinCheck(invite.bookingId).catch(() => null),
     candidateArrivals(invite.jobadderCandidateId).catch(() => []),
   ]);
@@ -65,6 +68,8 @@ export default async function CandidateOverviewPage({ params }: Props) {
       </div>
 
       {timeline.length > 1 && <Timeline points={timeline} current={invite.bookingId} />}
+
+      <InterviewHistory rounds={history} current={invite.bookingId} zone={zone} />
 
       {arrivals.length > 0 && <Punctuality arrivals={arrivals} current={invite.bookingId} zone={zone} />}
 
@@ -208,6 +213,7 @@ function Review({
         <ul className="space-y-1.5 text-sm text-neutral-700">
           <li>Resume: {sources?.resumeFile ?? <span className="text-amber-700">{sources?.resumeProblem ?? "not found"}</span>}</li>
           <li>JobAdder notes: {sources?.jobadderNotes ?? 0}</li>
+          {Boolean(sources?.earlierInterviews) && <li>Earlier interviews: {sources?.earlierInterviews}, with everyone&apos;s comments and transcripts</li>}
           <li>Job description: {sources?.jobDescription ? "from JobAdder" : <span className="text-amber-700">none in JobAdder - judged on the job title</span>}</li>
           <li>
             LinkedIn PDF:{" "}
@@ -307,7 +313,7 @@ function AfterInterview({ state, bookingId, before, zone }: { state: DebriefStat
             {state.error && <p className="text-xs text-neutral-500">{state.error}</p>}
           </>
         ) : (
-          <p>The overview after the interview is written once the transcript is ready (usually within 15 minutes of the call ending).</p>
+          <p>The overview after the interview is written once the transcript is ready (usually within 15 minutes of the call ending), or from the comments if there&apos;s no recording.</p>
         )}
         <ReviewControls bookingId={bookingId} label={state.status === "failed" ? "Try again" : "Write it now"} waiting={state.status === "running"} after />
       </Notice>
@@ -400,7 +406,7 @@ function AfterInterview({ state, bookingId, before, zone }: { state: DebriefStat
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-white px-5 py-3">
         <p className="text-xs text-neutral-500">
-          Written by AI from the transcript and everyone&apos;s notes - advisory only.
+          Written by AI from the transcript, everyone&apos;s comments and any earlier interviews - advisory only.
           {state.updatedAt && ` Written ${DateTime.fromISO(state.updatedAt, { zone }).toFormat("d LLL, h:mm a")}`}
           {state.jobAdderNotedAt ? " · added to JobAdder notes" : " · not added to JobAdder"}
         </p>

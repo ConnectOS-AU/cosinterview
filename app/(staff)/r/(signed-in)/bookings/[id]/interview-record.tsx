@@ -3,7 +3,7 @@ import type { InterviewNote } from "@/lib/types";
 import { formatOffset } from "@/lib/worker/format";
 import { SendToJobAdder } from "./send-to-jobadder";
 
-const STATUS_TEXT: Record<InterviewRecord["status"], string> = {
+export const STATUS_TEXT: Record<InterviewRecord["status"], string> = {
   none: "No recording was made for this interview.",
   pending: "Waiting for Daily to finish the recording…",
   downloading: "Fetching the recording…",
@@ -13,13 +13,13 @@ const STATUS_TEXT: Record<InterviewRecord["status"], string> = {
   failed: "Transcription failed.",
 };
 
-const RECOMMENDATION: Record<string, { label: string; className: string }> = {
+export const RECOMMENDATION: Record<string, { label: string; className: string }> = {
   progress: { label: "Progress", className: "bg-emerald-50 text-emerald-700" },
   maybe: { label: "Maybe", className: "bg-amber-50 text-amber-700" },
   do_not_progress: { label: "Don't progress", className: "bg-red-50 text-red-700" },
 };
 
-const SCORE_LABELS = [
+export const SCORE_LABELS = [
   ["communication", "Communication"],
   ["englishFluency", "English"],
   ["relevantExperience", "Experience"],
