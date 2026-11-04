@@ -49,6 +49,7 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
   // Inside a COSHub frame without camera permission the browser refuses without
   // asking, so there's nothing to allow: the interview needs its own tab.
   const [cameraBlocked, setCameraBlocked] = useState(false);
+  const [backgroundFailed, setBackgroundFailed] = useState(false);
 
   useEffect(() => () => void callRef.current?.destroy(), []);
   useEffect(() => {
@@ -109,13 +110,24 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
     });
     call.on("recording-stopped", () => setRecording("off"));
     call.on("recording-error", () => setRecording("failed"));
+    // Daily turns the camera off when an effect fails, rather than show the real
+    // background the recruiter chose to hide.
+    call.on("nonfatal-error", (e) => {
+      if (e?.type === "input-settings-error" || e?.type === "video-processor-error") setBackgroundFailed(true);
+    });
     call.on("left-meeting", () => {
       setPhase("left");
       setWaiting([]);
     });
 
     try {
-      await call.join({ url: result.roomUrl, token: result.token });
+      await call.join({
+        url: result.roomUrl,
+        token: result.token,
+        ...(result.backgroundUrl && Daily.supportedBrowser().supportsVideoProcessing
+          ? { inputSettings: { video: { processor: { type: "background-image" as const, config: { source: result.backgroundUrl } } } } }
+          : {}),
+      });
       setClockStart((c) => c ?? Date.now());
       setPhase("joined");
     } catch (err) {
@@ -155,6 +167,11 @@ export function InterviewScreen({ bookingId, candidateName, canJoin, initialNote
               Open interview in its own tab ↗
             </a>
           </section>
+        )}
+        {backgroundFailed && (
+          <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+            Your interview background couldn&apos;t be shown. If your camera went off, turn it back on in the video: it will show your real background.
+          </p>
         )}
         {waiting.length > 0 && (
           <section role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">

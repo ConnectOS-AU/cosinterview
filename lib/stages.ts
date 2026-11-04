@@ -56,6 +56,26 @@ export function noteLine(prefix: string, note: { body: string; authorName: strin
   return `${prefix} ${who}${note.body}`;
 }
 
+// What a client attendee advises after their interview. It's saved as one of
+// their notes, so it reaches the recruiter, JobAdder and the candidate overview
+// the way every note does.
+export const CLIENT_ADVICE = [
+  { key: "next_stage", label: "Progress to the next stage" },
+  { key: "do_not_proceed", label: "Do not proceed past this stage" },
+  { key: "offer", label: "Present the candidate with an offer" },
+] as const;
+export type ClientAdvice = (typeof CLIENT_ADVICE)[number]["key"];
+
+export const adviceNote = (advice: (typeof CLIENT_ADVICE)[number]) => `Client's advice: ${advice.label}`;
+export const adviceIn = (body: string) => CLIENT_ADVICE.find((a) => adviceNote(a) === body) ?? null;
+
+// A note as the AI reads it. Always names the author's part in the interview:
+// with no label it took the recruiter's own note for the client's.
+const NOTE_ROLE: Record<"recruiter" | GuestRole, string> = { recruiter: "recruiter", client: "client", other: "other attendee" };
+export function noteForAi(note: { body: string; authorName: string | null; authorKind: "recruiter" | GuestRole }): string {
+  return `${note.authorName ?? "Name not recorded"} (${NOTE_ROLE[note.authorKind]}): ${note.body}`;
+}
+
 // Client attendees join the video call as "<name> (client)" and others as
 // "<name> (other)", which is how the recruiter's lobby, attendance and the
 // transcription worker tell them from the candidate.

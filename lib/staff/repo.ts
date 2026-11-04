@@ -17,7 +17,7 @@ import type {
 
 export type { BookingSummary, InterviewNote, RecruiterProfile };
 
-const RECRUITER_COLUMNS = "id, user_id, slug, display_name, title, photo_path, bio, welcome_message, timezone, calendar_email, active, is_admin";
+const RECRUITER_COLUMNS = "id, user_id, slug, display_name, title, photo_path, interview_background_path, bio, welcome_message, timezone, calendar_email, active, is_admin";
 
 type RecruiterRow = {
   id: string;
@@ -26,6 +26,7 @@ type RecruiterRow = {
   display_name: string;
   title: string | null;
   photo_path: string | null;
+  interview_background_path: string | null;
   bio: string | null;
   welcome_message: string | null;
   timezone: string;
@@ -42,6 +43,7 @@ function toRecruiter(row: RecruiterRow): RecruiterProfile {
     displayName: row.display_name,
     title: row.title,
     photoPath: row.photo_path,
+    interviewBackgroundPath: row.interview_background_path,
     bio: row.bio,
     welcomeMessage: row.welcome_message,
     timezone: row.timezone,
@@ -99,6 +101,7 @@ export function demoRecruiter(): RecruiterProfile {
 
 export type ProfileFields = Pick<RecruiterProfile, "displayName" | "title" | "bio" | "welcomeMessage" | "timezone"> & {
   photoPath?: string | null;
+  interviewBackgroundPath?: string | null;
 };
 
 export async function updateRecruiterProfile(recruiterId: string, fields: ProfileFields): Promise<void> {
@@ -116,6 +119,7 @@ export async function updateRecruiterProfile(recruiterId: string, fields: Profil
       welcome_message: fields.welcomeMessage,
       timezone: fields.timezone,
       ...(fields.photoPath !== undefined ? { photo_path: fields.photoPath } : {}),
+      ...(fields.interviewBackgroundPath !== undefined ? { interview_background_path: fields.interviewBackgroundPath } : {}),
     })
     .eq("id", recruiterId);
   if (error) throw new Error(`Saving profile failed: ${error.message}`);
@@ -164,6 +168,7 @@ export async function createRecruiter(fields: NewRecruiter): Promise<"ok" | "ema
     displayName: fields.displayName,
     title: fields.title,
     photoPath: null,
+    interviewBackgroundPath: null,
     bio: null,
     welcomeMessage: null,
     timezone: "Asia/Manila",

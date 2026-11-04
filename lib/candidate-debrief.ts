@@ -4,11 +4,14 @@ import { earlierInterviewsText, earlierRounds, upcomingBookingIds } from "./inte
 import { getLinkedinCheck, linkedinCheckText } from "./linkedin-check";
 import { arrivalText, arrivalTrend, candidateArrivals } from "./punctuality";
 import { demoInvites, demoMode } from "./demo";
+import { recruiterOverviewEmail } from "./emails";
+import { siteUrl } from "./invite";
+import { mailConfigured, sendCandidateMail } from "./mail";
 import { findInviteById } from "./repo";
 import { SUITABILITY_LABEL } from "./review-labels";
 import { logToJobAdder } from "./staff/jobadder-api";
 import { listNotes } from "./staff/repo";
-import { noteLine, STAGES, stageLabel, stagePrefix, type Stage } from "./stages";
+import { noteForAi, STAGES, stageLabel, stagePrefix, type Stage } from "./stages";
 import { supabaseAdmin } from "./supabase/admin";
 import type { InviteRecord } from "./types";
 import { debriefCandidate, type CandidateDebrief } from "./worker/debrief";
@@ -19,7 +22,8 @@ import { SUMMARY_MODEL, summaryConfigured } from "./worker/summarise";
 // once the transcript is ready, or from the comments when there's no recording,
 // and again when comments are added later. Kept beside the pre-interview overview
 // on the same row, shown on /r/bookings/<id>/overview and added to JobAdder. Each
-// time, the overview for any later interview is queued to be written again.
+// time, the overview for any later interview is queued to be written again. The
+// recruiter is emailed the first one for each interview, not later rewrites.
 
 export type DebriefState = {
   status: "none" | "running" | "done" | "failed";
@@ -92,6 +96,30 @@ export async function loadTranscript(bookingId: string): Promise<string | null> 
   return text || null;
 }
 
+// A failed email never fails the overview: it's on the page and in JobAdder.
+async function emailRecruiter(invite: InviteRecord, debrief: CandidateDebrief, beforePercent: number | null): Promise<void> {
+  if (!mailConfigured()) return;
+  try {
+    const { recruiter } = invite;
+    const mail = recruiterOverviewEmail({
+      candidateName: invite.candidateName,
+      jobTitle: invite.interview.jobTitle,
+      overview: debriefNoteText(invite, debrief, beforePercent),
+      link: `${siteUrl()}/r/bookings/${invite.bookingId}/overview`,
+    });
+    await sendCandidateMail({
+      to: { name: recruiter.displayName, email: recruiter.calendarEmail },
+      recruiter: { name: recruiter.displayName, email: recruiter.calendarEmail },
+      fromName: "COSInterview",
+      subject: mail.subject,
+      html: mail.bodyHtml,
+      text: mail.text,
+    });
+  } catch (err) {
+    console.error("[debrief] Emailing the recruiter failed", invite.bookingId, err);
+  }
+}
+
 // Writes the post-interview review and adds it to JobAdder. Never throws.
 export async function runDebrief(invite: InviteRecord, transcript?: string): Promise<"done" | "skipped" | "failed"> {
   if (demoMode()) return runDemoDebrief(invite);
@@ -99,6 +127,7 @@ export async function runDebrief(invite: InviteRecord, transcript?: string): Pro
   try {
     const [text, notes] = await Promise.all([transcript ?? loadTranscript(invite.bookingId), listNotes(invite.bookingId)]);
     if (!text && notes.length === 0) return "skipped";
+    const firstWrite = (await getDebrief(invite.bookingId)).debrief === null;
     await save(invite.bookingId, { debrief_status: "running", debrief_error: null });
     const [before, earlier, linkedin, arrivals] = await Promise.all([
       getCandidateReview(invite.bookingId),
@@ -120,10 +149,11 @@ export async function runDebrief(invite: InviteRecord, transcript?: string): Pro
         ...(arrival ? [arrivalText(arrival, invite.recruiter.timezone)] : []),
         ...(trend ? [`Punctuality across interviews: ${trend.text}`] : []),
         ...(linkedin ? [linkedinCheckText(linkedin)] : []),
-        ...notes.map((n) => noteLine("", n).trim()),
+        ...notes.map(noteForAi),
       ],
     });
     await save(invite.bookingId, { debrief, debrief_status: "done", debrief_error: null, debrief_model: SUMMARY_MODEL });
+    if (firstWrite) await emailRecruiter(invite, debrief, before.review?.likelihoodPercent ?? null);
     await upcomingBookingIds(invite)
       .then(reviewAgain)
       .catch((err) => console.error("[debrief] Couldn't queue the next overview", invite.bookingId, err));
@@ -336,8 +366,9 @@ const DEMO_DEBRIEF: CandidateDebrief = {
   nextStepReason: "A good fit once the phone reference and salary are confirmed.",
 };
 
-function runDemoDebrief(invite: InviteRecord): "done" {
+async function runDemoDebrief(invite: InviteRecord): Promise<"done"> {
   const now = new Date().toISOString();
+  if (!demoDebriefs.has(invite.bookingId)) await emailRecruiter(invite, DEMO_DEBRIEF, 62);
   demoDebriefs.set(invite.bookingId, { status: "done", debrief: DEMO_DEBRIEF, error: null, updatedAt: now, jobAdderNotedAt: now });
   console.info("[jobadder note - demo]", invite.jobadderCandidateId, debriefNoteText(invite, DEMO_DEBRIEF, 62));
   return "done";

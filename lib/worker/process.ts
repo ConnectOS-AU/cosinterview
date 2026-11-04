@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { getRecording, meetingParticipants, parseTracks, type DailyTrack } from "../daily";
 import { findInviteById } from "../repo";
 import { listNotes } from "../staff/repo";
-import { noteLine, parseCallName } from "../stages";
+import { noteForAi, parseCallName } from "../stages";
 import { supabaseAdmin } from "../supabase/admin";
 import { compressForSpeech, downloadTrack } from "./audio";
 import { formatOffset } from "./format";
@@ -188,9 +188,7 @@ async function runPipeline(recordingId: string, work: string): Promise<void> {
       .map((s) => `[${formatOffset(s.start_ms)}] ${s.speaker_role === "recruiter" ? "Recruiter" : "Candidate"}: ${s.text_en}`)
       .join("\n");
     if (transcript) {
-      const notes = (await listNotes(booking.bookingId)).map((n) =>
-        noteLine("", n).trim(),
-      );
+      const notes = (await listNotes(booking.bookingId)).map(noteForAi);
       const result = await summariseInterview({
         jobTitle: booking.interview.jobTitle,
         clientName: booking.interview.clientName,

@@ -16,7 +16,7 @@ import { regenerateCandidateReview } from "@/lib/candidate-review";
 import { arrivalText, candidateArrivals } from "@/lib/punctuality";
 import { createOwnerToken, openRoomNow } from "@/lib/daily";
 import { demoMode } from "@/lib/demo";
-import { joinWindow, siteUrl } from "@/lib/invite";
+import { joinWindow, recruiterPhotoUrl, siteUrl } from "@/lib/invite";
 import { addCandidateNote, jobAdderWriteConfigured, logToJobAdder } from "@/lib/staff/jobadder-api";
 import { getInterviewRecord, markSummaryWritten } from "@/lib/staff/transcripts";
 import { findInviteById } from "@/lib/repo";
@@ -40,8 +40,8 @@ async function ownBooking(bookingId: string) {
 }
 
 export type JoinResult =
-  | { ok: true; roomUrl: string; token: string }
-  | { ok: true; roomUrl: null; token: null } // local dev without Daily
+  | { ok: true; roomUrl: string; token: string; backgroundUrl: string | null }
+  | { ok: true; roomUrl: null; token: null; backgroundUrl: null } // local dev without Daily
   | { ok: false; error: string };
 
 export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
@@ -51,15 +51,16 @@ export async function joinAsRecruiter(bookingId: string): Promise<JoinResult> {
       return { ok: false, error: "This interview isn't booked." };
     }
     const room = await roomForBooking(invite);
-    if (!room) return { ok: true, roomUrl: null, token: null };
+    if (!room) return { ok: true, roomUrl: null, token: null, backgroundUrl: null };
     const opens = joinWindow(invite)?.opens;
     if (opens && opens.toMillis() > Date.now()) await openRoomNow(room.name);
     // An admin working as this recruiter joins under their own name, still on the
     // recruiter side so the transcript labels them as the interviewer.
-    const name = staff.actingAs && staff.own ? staff.own.displayName : staff.recruiter.displayName;
+    const person = staff.actingAs && staff.own ? staff.own : staff.recruiter;
+    const name = person.displayName;
     const token = await createOwnerToken(room.name, { name, recruiterId: staff.recruiter.id });
     await recordAttendee(bookingId, { name, kind: "recruiter" });
-    return { ok: true, roomUrl: room.url, token };
+    return { ok: true, roomUrl: room.url, token, backgroundUrl: recruiterPhotoUrl(person.interviewBackgroundPath) };
   } catch (err) {
     console.error("[recruiter join]", bookingId, err);
     return { ok: false, error: "Couldn't open the interview room. Please try again." };

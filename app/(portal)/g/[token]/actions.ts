@@ -9,7 +9,7 @@ import { allowRequest } from "@/lib/rate-limit";
 import { roomForBooking } from "@/lib/rooms";
 import { logToJobAdder } from "@/lib/staff/jobadder-api";
 import { addNote, deleteNote, listNotes } from "@/lib/staff/repo";
-import { guestCallName, noteLine, stagePrefix } from "@/lib/stages";
+import { adviceIn, adviceNote, CLIENT_ADVICE, guestCallName, noteLine, stagePrefix, type ClientAdvice } from "@/lib/stages";
 
 // The client lobby's actions. Every one re-checks the attendee's personal link.
 
@@ -61,7 +61,7 @@ async function guestFor(token: string) {
 export async function loadGuestNotes(token: string): Promise<GuestNote[]> {
   const { guest, invite } = await guestFor(token);
   return (await listNotes(invite.bookingId))
-    .filter((n) => n.authorKind !== "recruiter" && n.authorId === guest.id)
+    .filter((n) => n.authorKind !== "recruiter" && n.authorId === guest.id && !adviceIn(n.body))
     .map((n) => ({ id: n.id, body: n.body, createdAt: n.createdAt }));
 }
 
@@ -78,6 +78,28 @@ export async function saveGuestNote(token: string, body: string): Promise<GuestN
     await logToJobAdder(invite.jobadderCandidateId, noteLine(stagePrefix(invite.interview.stage, invite.slotStart), note));
   }
   return { id: note.id, body: note.body, createdAt: note.createdAt };
+}
+
+// The client's latest advice on this candidate, for their own screen.
+export async function loadGuestAdvice(token: string): Promise<ClientAdvice | null> {
+  const { guest, invite } = await guestFor(token);
+  const mine = (await listNotes(invite.bookingId)).filter((n) => n.authorId === guest.id && adviceIn(n.body));
+  return mine.length ? adviceIn(mine[mine.length - 1]!.body)!.key : null;
+}
+
+// Clients can change their mind, so the new advice replaces their earlier one.
+export async function saveGuestAdvice(token: string, key: ClientAdvice): Promise<void> {
+  if (!allowRequest(await clientKey("note"), 60, 60_000)) throw new Error("Too many changes at once - please wait a moment.");
+  const { guest, invite } = await guestFor(token);
+  const advice = CLIENT_ADVICE.find((a) => a.key === key);
+  if (!advice || guest.role !== "client") throw new Error("Only client attendees can give advice.");
+  const earlier = (await listNotes(invite.bookingId)).filter((n) => n.authorId === guest.id && adviceIn(n.body));
+  if (earlier.some((n) => n.body === adviceNote(advice))) return;
+  const note = await addNote(invite.bookingId, { id: guest.id, name: guestDisplayName(guest), kind: guest.role }, { body: adviceNote(advice), offsetMs: null });
+  await Promise.all(earlier.map((n) => deleteNote(invite.bookingId, n.id)));
+  if (invite.status === "completed" || invite.status === "no_show") {
+    await logToJobAdder(invite.jobadderCandidateId, noteLine(stagePrefix(invite.interview.stage, invite.slotStart), note));
+  }
 }
 
 export async function removeGuestNote(token: string, noteId: string): Promise<void> {

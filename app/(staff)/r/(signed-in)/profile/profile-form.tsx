@@ -11,6 +11,7 @@ type Profile = {
   welcomeMessage: string;
   timezone: string;
   photoUrl: string | null;
+  backgroundUrl: string | null;
   calendarEmail: string;
 };
 
@@ -23,6 +24,9 @@ export function ProfileForm({ profile }: { profile: Profile }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [removePhoto, setRemovePhoto] = useState(false);
   const shown = removePhoto ? null : (preview ?? profile.photoUrl);
+  const [backgroundPreview, setBackgroundPreview] = useState<string | null>(null);
+  const [removeBackground, setRemoveBackground] = useState(false);
+  const shownBackground = removeBackground ? null : (backgroundPreview ?? profile.backgroundUrl);
   const zones = ZONES.includes(profile.timezone) ? ZONES : [profile.timezone, ...ZONES];
 
   return (
@@ -87,6 +91,38 @@ export function ProfileForm({ profile }: { profile: Profile }) {
         <Field label="Outlook calendar" hint="Bookings go into this calendar. Ask an admin to change it.">
           <input value={profile.calendarEmail} disabled className={`${INPUT} bg-neutral-50 text-neutral-500`} />
         </Field>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-5 border-t border-neutral-200 pt-5">
+        {shownBackground ? (
+          // eslint-disable-next-line @next/next/no-img-element -- local preview or Supabase Storage URL
+          <img src={shownBackground} alt="" className="aspect-video w-40 rounded-md object-cover ring-1 ring-neutral-200" />
+        ) : (
+          <div className="flex aspect-video w-40 items-center justify-center rounded-md bg-neutral-100 px-3 text-center text-xs text-neutral-500">Your real background</div>
+        )}
+        <div className="min-w-[15rem] flex-1 space-y-1.5 text-sm">
+          <p className="font-medium text-neutral-700">Interview background</p>
+          <input
+            type="file"
+            name="background"
+            accept="image/jpeg,image/png"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              setRemoveBackground(false);
+              setBackgroundPreview(file ? URL.createObjectURL(file) : null);
+            }}
+            className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-neutral-300 file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium"
+          />
+          <p className="text-xs text-neutral-500">
+            Shown behind you on camera in all your interviews when you join on a computer, not on a phone. A landscape JPG or PNG, up to 2 MB.
+          </p>
+          {profile.backgroundUrl && (
+            <label className="flex items-center gap-2 text-xs text-neutral-600">
+              <input type="checkbox" name="removeBackground" checked={removeBackground} onChange={(e) => setRemoveBackground(e.target.checked)} />
+              Use my real background
+            </label>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-4">
