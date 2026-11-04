@@ -82,7 +82,7 @@ export function CandidatePicker({ jobId, candidates, canEmail }: { jobId: string
   if (candidates.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-neutral-300 bg-white px-4 py-6 text-center text-sm text-neutral-500">
-        Nobody on this job is at Screening or beyond in JobAdder yet. New applications appear here once they move to Screening.
+        Nobody on this job is at Internal Interview or beyond in JobAdder yet. Candidates appear here once they move to Internal Interview.
       </p>
     );
   }
