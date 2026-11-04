@@ -4,9 +4,10 @@ import type { CandidateReview, ReviewPoint } from "./review";
 import { SUMMARY_MODEL } from "./summarise";
 
 // After the interview: the transcript and everyone's notes measured against
-// the pre-interview overview. What the candidate said to each suggested
-// question, which gaps and discrepancies were settled, what's still (or newly)
-// a concern, a fresh likelihood and recommendations. Advisory only.
+// the pre-interview overview and any earlier interviews. What the candidate
+// said to each suggested question, which gaps and discrepancies were settled,
+// what's still (or newly) a concern, a fresh likelihood and recommendations.
+// With no recording it's written from the notes alone. Advisory only.
 
 export type DebriefAnswer = {
   question: string;
@@ -93,12 +94,15 @@ const SCHEMA = {
 };
 
 const SYSTEM = `You help ConnectOS recruiters review a candidate after an interview for an offshore role based in the Philippines.
-You get: the role and which interview this was, the pre-interview overview (its likelihood, gaps, discrepancies and the questions it suggested asking), the interview transcript in English (machine-translated from English and Tagalog, with speaker labels and times - expect some translation noise; only the recruiter and the candidate are transcribed), and the notes everyone in the interview wrote (the recruiter, and any client or other attendees, labelled).
+You get: the role and which interview this was, the pre-interview overview (its likelihood, gaps, discrepancies and the questions it suggested asking), any earlier interviews for this job, the interview transcript in English (machine-translated from English and Tagalog, with speaker labels and times - expect some translation noise; only the recruiter and the candidate are transcribed), and the notes everyone in the interview wrote (the recruiter, and any client or other attendees, labelled).
 
 Do this:
 - Answers: for each suggested question, find where it (or something close to it) was asked and summarise what the candidate said, with the time. Judge the outcome: resolved (the answer settles what the question was checking), partly, concern (the answer raised a doubt) or not_asked.
 - Addressed: the pre-interview gaps and discrepancies the interview settled.
 - Concerns: those still open, plus anything new the interview raised (isNew). Use the attendees' notes too - say whose note it was.
+- Notes: every note counts as evidence from the interview, and a client's view weighs heavily on whether they'd hire. Reflect each one that bears on suitability in the opinion, the concerns or the likelihood.
+- Earlier interviews: compare this one with them. Say what has improved, what has slipped and what is still unresolved across interviews, and don't call something new if it came up before.
+- No transcript: if the transcript says there isn't one, work from the notes alone and say so in the opinion. Mark a suggested question not_asked unless a note shows the answer, and be more cautious moving the likelihood.
 - Punctuality: the notes may record when the candidate reached the lobby and their punctuality across interviews, measured by the system. A pattern of lateness or missed interviews is a concern to name; being on time or early is a small positive. Never speculate about why.
 - Likelihood: a calibrated new estimate after this interview, starting from the pre-interview figure and moving it only as far as the evidence justifies. Suitability bands as before: strong 75+, good 55-74, possible 35-54, unlikely under 35.
 - Recommendations: practical next steps for the recruiter.
@@ -118,7 +122,8 @@ export async function debriefCandidate(input: {
   candidateName: string;
   stage: string;
   before: CandidateReview | null;
-  transcript: string;
+  earlierInterviews: string | null;
+  transcript: string | null;
   notes: string[];
 }): Promise<CandidateDebrief> {
   const { before } = input;
@@ -149,8 +154,9 @@ export async function debriefCandidate(input: {
           `Candidate: ${input.candidateName}`,
           `This interview: ${input.stage}`,
           `<pre_interview_overview>\n${overview}\n</pre_interview_overview>`,
+          ...(input.earlierInterviews ? [`<earlier_interviews>\n${input.earlierInterviews}\n</earlier_interviews>`] : []),
           `<notes>\n${input.notes.length ? input.notes.map((n) => `- ${n}`).join("\n") : "(none)"}\n</notes>`,
-          `<transcript>\n${input.transcript}\n</transcript>`,
+          `<transcript>\n${input.transcript || "(No transcript for this interview.)"}\n</transcript>`,
           "Write the post-interview review.",
         ].join("\n\n"),
       },

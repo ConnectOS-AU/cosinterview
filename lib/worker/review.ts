@@ -4,8 +4,9 @@ import type { ReviewInputs } from "../review-inputs";
 import { SUMMARY_MODEL } from "./summarise";
 
 // Pre-interview review: the candidate's resume, JobAdder notes and application
-// answers against the job description. Advisory only - it prepares the
-// interviewer, the interview itself decides.
+// answers against the job description, plus their earlier interviews for this
+// job at later stages. Advisory only - it prepares the interviewer, the
+// interview itself decides.
 
 export type ReviewQuestion = { question: string; purpose: string; topic: "gap" | "discrepancy" | "verify" | "motivation" };
 export type ReviewPoint = { point: string; detail: string };
@@ -94,8 +95,8 @@ const SCHEMA = {
   },
 };
 
-const SYSTEM = `You help ConnectOS recruiters prepare for first-round interviews for offshore roles based in the Philippines.
-Before the interview you get the job description, the candidate's resume (if one was found), the recruitment team's JobAdder notes about the candidate, their application answers, and sometimes their LinkedIn profile as a PDF.
+const SYSTEM = `You help ConnectOS recruiters prepare for interviews for offshore roles based in the Philippines.
+Before the interview you get the job description, the candidate's resume (if one was found), the recruitment team's JobAdder notes about the candidate, their application answers, sometimes their LinkedIn profile as a PDF and, from the second interview on, their earlier interviews for this job.
 
 Compare the candidate with the job description:
 - Positives: specific strengths for this role, with the evidence.
@@ -118,7 +119,13 @@ LinkedIn comparison - only when a LinkedIn profile PDF is provided; otherwise li
 - Put serious differences in discrepancies too, and ask about them in the questions.
 - If the PDF isn't a LinkedIn profile or appears to be a different person, say so in the summary, leave matches and differences empty, and don't use it for anything else.
 
-When there is nothing to judge - no resume, and the notes and application answers say nothing about the candidate's experience or skills - don't guess:
+Earlier interviews - only when <earlier_interviews> is provided; this overview then prepares a later interview for the same job:
+- They are the strongest evidence you have. Use the comments everyone wrote, the scores and the transcripts, and say which interview and whose comment each point comes from.
+- Likelihood: start from the figure after the latest interview and move it only for evidence that view didn't already weigh, such as a comment added since. Don't go back to judging from the resume alone.
+- Summary, positives, gaps and discrepancies: carry the picture forward. Don't list as a gap or discrepancy something an interview settled, and keep what is still open, including concerns raised by a comment.
+- Questions: don't repeat what was asked and answered. Follow up open concerns and the recommendations from the last interview, and go deeper on what this stage should test.
+
+When there is nothing to judge - no resume, no earlier interviews, and the notes and application answers say nothing about the candidate's experience or skills - don't guess:
 - Set suitability to "insufficient" and likelihoodPercent to null. The opinion says plainly that nothing is known about the candidate yet and suggests asking them for a resume before the interview.
 - Keep the summary short. Don't list every requirement of the role as a gap; one gap saying their experience against the role is unknown is enough. Positives and discrepancies stay empty.
 - Make the questions gather the basics against the role's key requirements: their current or most recent role, their experience with the main skills the job asks for (name them), notice period and availability, salary expectations, and why this role.
@@ -137,6 +144,7 @@ export async function reviewCandidate(input: {
   clientName: string | null;
   candidateName: string;
   inputs: ReviewInputs;
+  earlierInterviews?: string | null;
 }): Promise<CandidateReview> {
   const { inputs } = input;
   const notes = inputs.notes.length
@@ -157,6 +165,7 @@ export async function reviewCandidate(input: {
         `<job_description>\n${inputs.jobDescription ?? "(No job description in JobAdder - judge against the job title only, and say so.)"}\n</job_description>`,
         `<jobadder_notes>\n${notes}\n</jobadder_notes>`,
         `<application_answers>\n${application}\n</application_answers>`,
+        ...(input.earlierInterviews ? [`<earlier_interviews>\n${input.earlierInterviews}\n</earlier_interviews>`] : []),
       ].join("\n\n"),
     },
   ];
@@ -196,7 +205,7 @@ export async function reviewCandidate(input: {
   const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   const review = JSON.parse(text) as CandidateReview;
   // Nothing to go on: no percentage, whatever the model said.
-  const nothingKnown = !inputs.resume && !inputs.linkedinPdf && inputs.notes.length === 0;
+  const nothingKnown = !inputs.resume && !inputs.linkedinPdf && inputs.notes.length === 0 && !input.earlierInterviews;
   if (nothingKnown || review.suitability === "insufficient" || review.likelihoodPercent === null) {
     review.suitability = "insufficient";
     review.likelihoodPercent = null;

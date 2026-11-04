@@ -1,5 +1,6 @@
 import "server-only";
 import { demoMode } from "./demo";
+import { earlierInterviewsText, earlierRounds } from "./interview-history";
 import { getLinkedinPdf } from "./linkedin-pdf";
 import { findInviteById } from "./repo";
 import { gatherReviewInputs, type ReviewInputs } from "./review-inputs";
@@ -15,6 +16,7 @@ import { SUMMARY_MODEL, summaryConfigured } from "./worker/summarise";
 // booking, shown on /r/bookings/<id>/overview, on the interview list and beside
 // the interview, and added to the candidate's JobAdder notes. Starts right after
 // the invite; /api/worker/run retries failures and picks up anything missed.
+// From the second interview on it also reads the earlier ones (lib/interview-history.ts).
 
 const MAX_ATTEMPTS = 3;
 
@@ -25,6 +27,8 @@ export type ReviewSources = {
   jobDescription: boolean;
   linkedinUrl: string | null;
   linkedinPdfFile?: string | null;
+  // Earlier interviews for this job. Missing on older reviews.
+  earlierInterviews?: number;
 };
 
 export type ReviewState = {
@@ -128,7 +132,7 @@ async function update(bookingId: string, fields: Partial<Omit<Row, "booking_id">
   if (error) throw new Error(`Saving the review failed: ${error.message}`);
 }
 
-function sourcesOf(inputs: ReviewInputs, review: CandidateReview | null): ReviewSources {
+function sourcesOf(inputs: ReviewInputs, review: CandidateReview | null, earlierInterviews: number): ReviewSources {
   return {
     resumeFile: inputs.resume?.fileName ?? null,
     resumeProblem: inputs.resumeProblem,
@@ -136,6 +140,7 @@ function sourcesOf(inputs: ReviewInputs, review: CandidateReview | null): Review
     jobDescription: Boolean(inputs.jobDescription),
     linkedinUrl: inputs.application.linkedinUrl ?? review?.linkedinUrl ?? null,
     linkedinPdfFile: inputs.linkedinPdf?.fileName ?? null,
+    earlierInterviews,
   };
 }
 
@@ -152,14 +157,15 @@ export async function runCandidateReview(invite: InviteRecord): Promise<"done" |
   }
 
   try {
-    const inputs = await gatherReviewInputs(invite);
+    const [inputs, earlier] = await Promise.all([gatherReviewInputs(invite), earlierRounds(invite)]);
     const review = await reviewCandidate({
       jobTitle: invite.interview.jobTitle,
       clientName: invite.interview.clientName,
       candidateName: invite.candidateName,
       inputs,
+      earlierInterviews: earlierInterviewsText(earlier),
     });
-    const sources = sourcesOf(inputs, review);
+    const sources = sourcesOf(inputs, review, earlier.length);
     await update(invite.bookingId, { status: "done", result: review, sources, model: SUMMARY_MODEL, error: null });
 
     // The JobAdder note is best-effort, like the other activity notes.
@@ -187,6 +193,18 @@ export async function regenerateCandidateReview(invite: InviteRecord): Promise<"
     .upsert({ booking_id: invite.bookingId, status: "pending", attempts: 0, error: null, updated_at: new Date().toISOString() });
   if (error) throw new Error(`Resetting the review failed: ${error.message}`);
   return runCandidateReview(invite);
+}
+
+// An earlier interview's overview changed, so these have new evidence: the
+// worker writes them again. One being written right now is left to finish.
+export async function reviewAgain(bookingIds: string[]): Promise<void> {
+  if (bookingIds.length === 0 || demoMode()) return;
+  const { error } = await supabaseAdmin()
+    .from("cos_recruitment_candidate_reviews")
+    .update({ status: "pending", attempts: 0, error: null, updated_at: new Date().toISOString() })
+    .in("booking_id", bookingIds)
+    .neq("status", "running");
+  if (error) throw new Error(`Queueing the overview again failed: ${error.message}`);
 }
 
 // Worker: reviews for upcoming interviews and open invites that are missing,
@@ -232,6 +250,7 @@ export function reviewNoteText(invite: InviteRecord, review: CandidateReview, so
     `${sources.jobadderNotes} JobAdder note${sources.jobadderNotes === 1 ? "" : "s"}`,
     sources.jobDescription ? "the job description" : "the job title (no job description in JobAdder)",
     "application answers",
+    ...(sources.earlierInterviews ? [`${sources.earlierInterviews} earlier interview${sources.earlierInterviews === 1 ? "" : "s"}`] : []),
     ...(sources.linkedinPdfFile ? [`LinkedIn PDF (${sources.linkedinPdfFile})`] : []),
   ].join(", ");
   const compared = review.linkedinComparison;
@@ -344,7 +363,13 @@ async function runDemoReview(invite: InviteRecord): Promise<"done"> {
   if (demoReviews.get(invite.bookingId)?.status === "done") return "done";
   const known = invite.jobadderCandidateId === "5001";
   const pdf = await getLinkedinPdf(invite.bookingId);
-  const review = { ...(known ? DEMO_REVIEW : DEMO_UNKNOWN), linkedinComparison: pdf ? DEMO_COMPARISON : null };
+  const earlier = await earlierRounds(invite);
+  const lastFigure = earlier.filter((r) => r.after !== null).at(-1)?.after;
+  const review = {
+    ...(known ? DEMO_REVIEW : DEMO_UNKNOWN),
+    ...(known && lastFigure ? { likelihoodPercent: lastFigure } : {}),
+    linkedinComparison: pdf ? DEMO_COMPARISON : null,
+  };
   const sources: ReviewSources = {
     resumeFile: known ? "Maria Santos CV.pdf" : null,
     resumeProblem: known ? null : "No resume on JobAdder.",
@@ -352,6 +377,7 @@ async function runDemoReview(invite: InviteRecord): Promise<"done"> {
     jobDescription: invite.interview.jobadderJobId === "1001",
     linkedinUrl: review.linkedinUrl,
     linkedinPdfFile: pdf?.fileName ?? null,
+    earlierInterviews: earlier.length,
   };
   const now = new Date().toISOString();
   demoReviews.set(invite.bookingId, {

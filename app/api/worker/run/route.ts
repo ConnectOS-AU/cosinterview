@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { processDueDebriefs } from "@/lib/candidate-debrief";
 import { processDueReviews } from "@/lib/candidate-review";
 import { demoMode } from "@/lib/demo";
 import { sendDueReminders } from "@/lib/reminders";
@@ -33,6 +34,14 @@ export async function POST(request: Request) {
     console.error("[worker] Reminders failed", err);
     reminders = "failed";
   }
+  // Before the reviews, which pick up what a new overview changed.
+  let debriefs: number | string = 0;
+  try {
+    debriefs = await processDueDebriefs();
+  } catch (err) {
+    console.error("[worker] Post-interview reviews failed", err);
+    debriefs = "failed";
+  }
   let reviews: number | string = 0;
   try {
     reviews = await processDueReviews();
@@ -41,5 +50,5 @@ export async function POST(request: Request) {
     reviews = "failed";
   }
   const processed = demoMode() ? 0 : await processDueRecordings();
-  return NextResponse.json({ reminders, reviews, processed });
+  return NextResponse.json({ reminders, debriefs, reviews, processed });
 }
