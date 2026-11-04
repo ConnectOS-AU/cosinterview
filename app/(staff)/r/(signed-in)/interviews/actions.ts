@@ -168,6 +168,50 @@ export async function createInvitations(input: {
   return { ok: true, sent, skipped };
 }
 
+export type ProgressResult = { ok: true; sent: SentInvite[]; skipped: string[]; failed: string[] } | { ok: false; error: string };
+
+// Invites candidates across jobs, each to their own stage. An invitation is for
+// one job and stage, so it's sent in those groups; one failing doesn't stop the rest.
+export async function progressCandidates(input: {
+  picks: { jobId: string; candidateId: string; stage: Stage }[];
+  durationMins: number;
+  sendEmail: boolean;
+  message?: string;
+}): Promise<ProgressResult> {
+  await requireRecruiter();
+  if (input.picks.length === 0) return { ok: false, error: "Select at least one candidate." };
+  if (input.picks.length > MAX_PER_BATCH) return { ok: false, error: `Choose up to ${MAX_PER_BATCH} at a time.` };
+
+  const groups = new Map<string, { jobId: string; stage: Stage; candidateIds: string[] }>();
+  for (const { jobId, candidateId, stage } of input.picks) {
+    const key = `${jobId}:${stage}`;
+    const group = groups.get(key) ?? { jobId, stage, candidateIds: [] };
+    group.candidateIds.push(candidateId);
+    groups.set(key, group);
+  }
+
+  const sent: SentInvite[] = [];
+  const skipped: string[] = [];
+  const failed: string[] = [];
+  for (const group of groups.values()) {
+    const outcome = isStage(group.stage) ? stageLabel(group.stage) : "that stage";
+    const none = `${group.candidateIds.length} candidate${group.candidateIds.length === 1 ? "" : "s"} for ${outcome}`;
+    try {
+      const res = await createInvitations({ ...group, durationMins: input.durationMins, sendEmail: input.sendEmail, message: input.message });
+      if (res.ok) {
+        sent.push(...res.sent);
+        skipped.push(...res.skipped);
+      } else {
+        failed.push(`${none}: ${res.error}`);
+      }
+    } catch (err) {
+      console.error("[progress] Inviting failed", group.jobId, group.stage, err);
+      failed.push(none);
+    }
+  }
+  return { ok: true, sent, skipped, failed };
+}
+
 // --- Managing one booking -------------------------------------------------
 
 async function ownBooking(bookingId: string): Promise<{ recruiter: RecruiterProfile; invite: InviteRecord }> {
