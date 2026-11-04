@@ -3,6 +3,7 @@
 import type { DailyCall } from "@daily-co/daily-js";
 import { useEffect, useRef, useState } from "react";
 import { BrandLogo } from "@/app/brand-logo";
+import { followAdmission } from "@/lib/daily-lobby";
 import { useSecondScreen } from "@/lib/companion";
 import type { PublicRecruiter } from "@/lib/types";
 import { RecruiterAvatar } from "../../c/portal-shell";
@@ -167,18 +168,9 @@ function VideoArea({
         showFullscreenButton: true,
       });
       call.on("left-meeting", () => setPhase((p) => (p === "denied" ? p : "left")));
-      call.on("error", () => setPhase((p) => (p === "denied" ? p : "error")));
+      followAdmission(call, setPhase);
 
       await call.join({ url: access.roomUrl, userName: access.userName, userData: { role: "client", bookingId: access.bookingId } });
-      if (cancelled) return;
-      const { access: level } = call.accessState();
-      if (level !== "unknown" && level.level === "lobby") {
-        setPhase("lobby");
-        const { granted } = await call.requestAccess({ name: access.userName, access: { level: "full" } });
-        if (!cancelled) setPhase(granted ? "in_call" : "denied");
-      } else {
-        setPhase("in_call");
-      }
     }
 
     start().catch((err) => {
@@ -205,7 +197,7 @@ function VideoArea({
     connecting: { title: "Connecting…", body: "If your browser asks to use your camera and microphone, please choose Allow.", waiting: true },
     lobby: {
       title: "You're in the waiting room",
-      body: `${recruiter.firstName} has been told you're here and will bring you into the call. Keep this page open - your notes and the documents stay available.`,
+      body: `Allow your camera and microphone if your browser asks, then press Request to join in the box below. ${recruiter.firstName} will bring you in. Your notes and the documents stay available.`,
       waiting: true,
     },
     in_call: { title: "", body: "" },
@@ -217,6 +209,7 @@ function VideoArea({
     error: { title: "We couldn't connect you", body: "Please try again. If it keeps happening, reply to your invitation email.", again: true },
   };
   const inCall = phase === "in_call";
+  const knocking = phase === "connecting" || phase === "lobby";
   const { title, body, waiting, again } = copy[phase];
 
   function tryAgain() {
@@ -225,12 +218,18 @@ function VideoArea({
   }
 
   return (
-    // As wide as the column allows, but never taller than the window.
-    <section className="relative aspect-video max-h-[calc(100dvh-6rem)] min-h-[18rem] w-full overflow-hidden rounded-2xl border border-brand-line bg-brand-surface shadow-card">
-      {/* The Daily frame stays mounted (camera permission and the lobby
-          connection carry on) but shows only once the attendee is admitted. */}
-      <div ref={frameRef} className={inCall ? "absolute inset-0 bg-black" : "pointer-events-none absolute inset-0 opacity-0"} aria-hidden={!inCall} />
-      {!inCall && (
+    <div className="space-y-3">
+      {knocking && (
+        <div role="status" aria-live="polite">
+          <h1 className="text-lg font-medium text-brand-ink">{title}</h1>
+          <p className="mt-1 text-sm text-brand-muted">{body}</p>
+        </div>
+      )}
+      {/* As wide as the column allows, but never taller than the window. */}
+      <section className="relative aspect-video max-h-[calc(100dvh-6rem)] min-h-[20rem] w-full overflow-hidden rounded-2xl border border-brand-line bg-brand-surface shadow-card">
+      {/* The attendee needs Daily's screen to allow their camera and ask to join. */}
+      <div ref={frameRef} className={inCall || knocking ? "absolute inset-0 bg-black" : "hidden"} />
+      {!inCall && !knocking && (
         <div className="absolute inset-0 flex flex-col justify-center gap-4 overflow-auto p-6 sm:p-10">
           <div className="flex items-center gap-4">
             <RecruiterAvatar recruiter={recruiter} />
@@ -262,7 +261,8 @@ function VideoArea({
           )}
         </div>
       )}
-    </section>
+      </section>
+    </div>
   );
 }
 
