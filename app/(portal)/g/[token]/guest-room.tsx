@@ -4,8 +4,10 @@ import type { DailyCall } from "@daily-co/daily-js";
 import { useEffect, useRef, useState } from "react";
 import { BrandLogo } from "@/app/brand-logo";
 import { followAdmission } from "@/lib/daily-lobby";
+import { followBackground, joinBackground } from "@/lib/lobby-background";
 import { useSecondScreen } from "@/lib/companion";
 import type { PublicRecruiter } from "@/lib/types";
+import { BackgroundPicker } from "../../background-picker";
 import { RecruiterAvatar } from "../../c/portal-shell";
 import { CLIENT_ADVICE, type ClientAdvice } from "@/lib/stages";
 import { getGuestRoomAccess, removeGuestNote, saveGuestAdvice, saveGuestNote, type GuestNote } from "./actions";
@@ -136,6 +138,7 @@ function VideoArea({
   const frameRef = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>(finished ? "finished" : "checking");
   const [attempt, setAttempt] = useState(0);
+  const [backgroundFailed, setBackgroundFailed] = useState(false);
 
   useEffect(() => {
     if (finished) return;
@@ -173,8 +176,9 @@ function VideoArea({
       });
       call.on("left-meeting", () => setPhase((p) => (p === "denied" ? p : "left")));
       followAdmission(call, setPhase);
+      followBackground(call, () => setBackgroundFailed(true));
 
-      await call.join({ url: access.roomUrl, userName: access.userName, userData: { role: "client", bookingId: access.bookingId } });
+      await call.join({ url: access.roomUrl, ...joinBackground(Daily), userName: access.userName, userData: { role: "client", bookingId: access.bookingId } });
     }
 
     start().catch((err) => {
@@ -266,6 +270,7 @@ function VideoArea({
         </div>
       )}
       </section>
+      {(knocking || phase === "too_early" || phase === "not_booked") && <BackgroundPicker failed={backgroundFailed} />}
     </div>
   );
 }
