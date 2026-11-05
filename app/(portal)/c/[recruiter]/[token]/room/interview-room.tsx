@@ -6,8 +6,10 @@ import type { AdmissionState } from "@/lib/daily-lobby";
 import type { WaitingRoomContent } from "@/content/waiting-room";
 import { followAdmission } from "@/lib/daily-lobby";
 import { formatDay, formatTime, formatZone } from "@/lib/format";
+import { followBackground, joinBackground } from "@/lib/lobby-background";
 import type { PublicRecruiter } from "@/lib/types";
 import { BrandLogo } from "@/app/brand-logo";
+import { BackgroundPicker } from "../../../../background-picker";
 import { InterviewTipsPanel, LobbyPanel, LobbyTips } from "../../../../lobby-panel";
 import { RecruiterAvatar } from "../../../portal-shell";
 import { getRoomAccess, type RoomAccess } from "../actions";
@@ -47,6 +49,7 @@ export function InterviewRoom(props: Props) {
   const { recruiterSlug, token, recruiter, candidateFirstName, startsAt, opensAt, zone, lobby, jobHref } = props;
   const frameRef = useRef<HTMLDivElement>(null);
   const [phase, setPhase] = useState<Phase>("checking");
+  const [backgroundFailed, setBackgroundFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,10 +76,12 @@ export function InterviewRoom(props: Props) {
         admission = state;
         setPhase(state);
       });
+      followBackground(call, () => setBackgroundFailed(true));
 
       await call.join({
         url: access.roomUrl!,
         ...(access.token ? { token: access.token } : {}),
+        ...joinBackground(Daily),
         userName: access.candidateName,
         userData: { role: "candidate", bookingId: access.bookingId },
       });
@@ -156,6 +161,12 @@ export function InterviewRoom(props: Props) {
       />
       {!inCall && (
         <div className="mx-auto max-w-6xl px-4 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6">
+          {/* Beside the camera preview it changes. */}
+          {(knocking || phase === "too_early") && (
+            <div className="mt-6">
+              <BackgroundPicker failed={backgroundFailed} />
+            </div>
+          )}
           <div className="mt-6 grid gap-6 lg:grid-cols-5">
             <div className="space-y-6 lg:col-span-2">
               <StatusCard
